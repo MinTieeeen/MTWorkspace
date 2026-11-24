@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 25% 98%;
+    --foreground: 215 35% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 215 35% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 35% 12%;
+    --primary: 200 90% 44%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 25% 94%;
+    --secondary-foreground: 215 30% 20%;
+    --muted: 210 22% 94%;
+    --muted-foreground: 215 16% 44%;
+    --accent: 200 60% 94%;
+    --accent-foreground: 200 90% 36%;
+    --destructive: 350 85% 58%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 210 22% 89%;
+    --input: 210 22% 89%;
+    --ring: 200 90% 44%;
+    --radius: 0.85rem;
+  }
+
+  .dark {
+    --background: 215 32% 8%;
+    --foreground: 210 25% 96%;
+    --card: 215 28% 11%;
+    --card-foreground: 210 25% 96%;
+    --popover: 215 28% 11%;
+    --popover-foreground: 210 25% 96%;
+    --primary: 199 92% 52%;
+    --primary-foreground: 215 35% 9%;
+    --secondary: 215 24% 16%;
+    --secondary-foreground: 210 22% 92%;
+    --muted: 215 24% 15%;
+    --muted-foreground: 212 15% 64%;
+    --accent: 200 35% 17%;
+    --accent-foreground: 198 92% 72%;
+    --destructive: 350 78% 56%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 215 22% 18%;
+    --input: 215 22% 18%;
+    --ring: 199 92% 52%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background font-sans text-[15px] text-foreground antialiased transition-colors duration-200;
+  }
+  h1, h2, h3, h4 {
+    @apply font-display;
+  }
+}
+
+/* Internal Icon Micro-Animations (Only triggered on hover, completely static when idle) */
+@keyframes iconWiggle {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-12deg);
+  }
+  50% {
+    transform: rotate(10deg);
+  }
+  75% {
+    transform: rotate(-6deg);
+  }
+}
+
+@keyframes iconTick {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(14deg);
+  }
+  60% {
+    transform: rotate(-10deg);
+  }
+}
+
+@keyframes iconSlideUp {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+.group:hover .icon-anim-wiggle {
+  animation: iconWiggle 0.55s ease-in-out;
+}
+
+.group:hover .icon-anim-tick {
+  animation: iconTick 0.5s ease-in-out;
+}
+
+.group:hover .icon-anim-slide {
+  animation: iconSlideUp 0.45s ease-in-out;
+}
