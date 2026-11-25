@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   ChevronUp,
   LogOut,
@@ -76,8 +77,12 @@ export function UserProfileSidebar() {
 
   if (loading) {
     return (
-      <div className="border-t p-3">
-        <div className="h-12 rounded-xl bg-muted/60" />
+      <div className="flex items-center gap-2.5 border-t p-3">
+        <Skeleton className="h-9 w-9 shrink-0 rounded-lg" />
+        <div className="flex-1 space-y-1.5">
+          <Skeleton className="h-3.5 w-24" />
+          <Skeleton className="h-3 w-16" />
+        </div>
       </div>
     );
   }

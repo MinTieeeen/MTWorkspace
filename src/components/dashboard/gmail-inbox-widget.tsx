@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertCircle,
   ArrowUpRight,
@@ -51,6 +52,7 @@ export function GmailInboxWidget() {
   const [messages, setMessages] = useState<GmailMessageItem[]>([]);
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const [lovFilter, setLovFilter] = useState<WidgetLovFilter>("ALL");
   const [lovOpen, setLovOpen] = useState(false);
   const [apiErrors, setApiErrors] = useState<string[]>([]);
@@ -84,6 +86,7 @@ export function GmailInboxWidget() {
       // ignore
     } finally {
       setLoading(false);
+      setInitialLoaded(true);
     }
   };
 
@@ -205,7 +208,16 @@ export function GmailInboxWidget() {
       </div>
 
       {/* Body Content */}
-      {!authenticated ? (
+      {!initialLoaded ? (
+        <div className="space-y-3 p-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="space-y-2">
+              <Skeleton className="h-3.5 w-1/3" />
+              <Skeleton className="h-4 w-4/5" />
+            </div>
+          ))}
+        </div>
+      ) : !authenticated ? (
         <div className="flex h-52 flex-col items-center justify-center gap-3 p-6">
           <svg width="105" height="90" viewBox="0 0 105 90" fill="none">
             <rect

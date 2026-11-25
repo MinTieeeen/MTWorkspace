@@ -215,3 +215,92 @@ Hệ thống được thiết kế theo mô hình **Web App chạy Local-first**
 - ✅ **Nguồn dữ liệu myBK:** Đồng bộ trực tiếp từ cổng ứng dụng sinh viên **`mybk.hcmut.edu.vn/app`** (qua SSO Bách Khoa).
 - ✅ **Phạm vi tích hợp Gmail:** Hỗ trợ kết nối đồng thời cả **Gmail cá nhân (`@gmail.com`)** và **Email sinh viên (`@hcmut.edu.vn`)**.
 - ✅ **Quản lý thông tin môn học:** Tinh gọn — bỏ trang Không gian môn học riêng lẻ, tích hợp ghi chú quan trọng của môn học trực tiếp vào thẻ môn học trên Lịch/TKB và phân hệ Quick Notes/Task.
+
+
+---
+
+## 7. Kế Hoạch Hiện Thực Chi Tiết: Trang Thời Khóa Biểu (`/timetable`) & Đồng Bộ Google Calendar
+
+### 7.1. Nguồn Dữ Liệu API từ `mybk.hcmut.edu.vn`
+
+1. **API Lấy Danh sách Học kỳ (`GET /api/v1/semester-year/short`):**
+   - Dùng để lấy danh sách các học kỳ và tự động nhận diện **Học kỳ hiện tại** qua cờ `isCurrent: true` (VD: `code: 20261` — *"Học kỳ 1 Năm học 2026 - 2027"*).
+   - Lọc thông minh trong LOV: Chỉ hiển thị các học kỳ trong niên khóa của sinh viên (VD: từ `20231` đến học kỳ hiện tại/kế tiếp), tránh làm rối bởi hơn 90 học kỳ từ năm 1990.
+2. **API Lấy Chi tiết Thời khóa biểu (`GET /api/v1/student/schedule?studentId=211441&semesterYear=20261`):**
+   - Truyền `studentId` nội bộ (`sinhVienId = 211441`) và `semesterYear` (`20261`).
+   - Kết hợp cùng cơ chế **Tự động nuôi phiên SSO + Đồng bộ ngầm SWR + Smart Upsert PostgreSQL** (bảng `AcademicTimetableItem`).
+
+---
+
+### 7.2. Xử Lý Nghiệp Vụ Đặc Thù Thời Khóa Biểu Bách Khoa
+
+Từ dữ liệu thực tế của API `student/schedule`, hệ thống sẽ xử lý 4 bài toán đặc thù của ĐHBK:
+
+1. **Giải mã chuỗi Tuần học (`weekSeriesDisplay` & `weeksCalendarBegin`):**
+   - Chuỗi `weekSeriesDisplay` (VD: `"35|--|37|38|39|40|41|--|43|44|45|46|47|--|49|50|"`) biểu diễn chính xác tuần nào **Có học** (hiện số tuần dương lịch như `35`, `37`) và tuần nào **Nghỉ / Thi giữa kỳ** (hiện `--`).
+   - Kết hợp với `calendarYear: 2026` và `weeksCalendarBegin: 35`, hệ thống tính ra **chính xác Ngày/Tháng/Năm dương lịch của từng buổi học thực tế** (loại bỏ hoàn toàn các tuần `--`, nhận diện đúng cả các buổi học bù lẻ 1 tuần như `CO1007` học Chủ Nhật tuần 37, hay `SA0007`/`SA0009`/`SA0005` học Thứ Bảy tuần 38, 40, 41).
+2. **Tách biệt Môn học trên lớp & Môn Đồ án / Không xếp tiết cố định (`dayOfWeek === 0`):**
+   - Các môn như `CO4029` (*Đồ án Chuyên ngành*) hoặc `SA0002` (*Sinh hoạt Sinh viên*) có `dayOfWeek: 0`, `startLesson: 0`, `startTime: "0:00"`.
+   - Hệ thống sẽ **không vẽ các môn này vào lúc 0h sáng**, mà gom riêng vào khu vực **"Môn Đồ án & Không xếp tiết cố định"** để lưới lịch học (`07:00 – 18:00`) luôn sạch và chuẩn.
+3. **Phân biệt Cơ sở học (`BK-CS1` Lý Thường Kiệt vs `BK-CS2` Đông Hòa - Dĩ An):**
+   - Gắn nhãn màu rõ ràng cho từng ca học:
+     - **Cơ sở 1 (Lý Thường Kiệt):** Nhãn cam/đỏ (VD: `A5-HTA5 • CS1`).
+     - **Cơ sở 2 (Đĩ An):** Nhãn xanh dương/ngọc (VD: `BK.B1-102 • CS2`, `BK.B6-311 • CS2`).
+4. **Thông tin Giảng viên & Liên hệ nhanh:**
+   - Ghép `employee.lastName + employee.firstName` (VD: `LÊ ĐÌNH THUẬN`, `VŨ NGỌC TÚ`) kèm `employee.email` (`thuanle@hcmut.edu.vn`), cho phép bấm copy email hoặc mở nhanh trang `Hộp thư (/mail)` để gửi/tìm email của giảng viên đó.
+
+---
+
+### 7.3. Các Chế Độ Hiển Thị Đa Dạng Trên Trang Thời Khóa Biểu (`/timetable`)
+
+Trang `/timetable` sẽ cung cấp **3 chế độ xem (View Modes)** chuyển đổi tức thì trên thanh công cụ:
+
+#### Chế độ 1: Lịch Tuần Trực Quan (`Weekly Time-Grid View` — Mặc định)
+- **Bộ chọn Tuần học thông minh:**
+  - Nút chuyển `Tuần trước` / `Tuần hiện tại` / `Tuần sau` + LOV chọn nhanh từng tuần (VD: *Tuần 38 (14/09 – 20/09/2026)*).
+  - **Chỉ hiển thị những môn thực sự có học trong tuần đang chọn** (nếu tuần đó là tuần `--` nghỉ hoặc tuần thi giữa kỳ như Tuần 42, môn đó sẽ tự động ẩn hoặc báo nghỉ, còn các buổi sinh hoạt/học bù chỉ xuất hiện đúng vào tuần có lịch).
+- **Lưới Thời gian (Thứ Hai `dayOfWeek=2` đến Chủ Nhật `dayOfWeek=8`):**
+  - Trục dọc theo khung giờ thực tế (`07:00 – 18:00`) và Tiết học Bách Khoa (`Tiết 1 – Tiết 12`).
+  - Mỗi thẻ môn học trên lưới hiển thị: `Mã môn`, `Tên môn`, `Khung giờ (13:00 - 14:50)`, `Phòng học (BK.B1-102)`, `Cơ sở (CS1 / CS2)`, `Nhóm lớp (L01)`.
+- **Khung Môn Đồ án / Không xếp tiết (`dayOfWeek = 0`) ở bên dưới lưới tuần.**
+
+#### Chế độ 2: Bảng Tổng Hợp Toàn Học Kỳ & Chuỗi Tuần (`Semester Matrix & Course List View`)
+- Dành cho việc xem bao quát toàn bộ các môn đăng ký trong học kỳ `20261`:
+  - Hiển thị bảng danh sách tất cả các lớp học phần kèm: `Mã môn`, `Tên môn`, `Tín chỉ`, `Nhóm lớp`, `Thứ & Giờ học`, `Phòng & Cơ sở`, `Giảng viên & Email`.
+  - **Thanh chuỗi tuần trực quan (`Week Series Timeline`):** Biểu diễn chuỗi `35|--|37|38|...|50` thành dãy các ô tuần từ `35` đến `50` (ô màu xanh là tuần có học, ô xám mờ `--` là tuần nghỉ, ô viền nổi bật là tuần hiện tại).
+
+#### Chế độ 3: Lịch Trình Theo Ngày / Sắp Tới (`Daily Agenda View`)
+- Hiển thị dạng dòng thời gian (Timeline) các buổi học của **Hôm nay**, **Ngày mai** và các ngày kế tiếp trong tuần:
+  - Cho biết ca học nào sắp diễn ra, tại tòa nhà nào (`Nhà BK.B6`, `Nhà BK.B1`, `Nhà A5`), phòng nào, giảng viên nào.
+
+---
+
+### 7.4. Modal Xem Chi Tiết Buổi Học & Ghi Chú Nhanh Môn Học (`ScheduleDetailModal`)
+
+Khi bấm vào bất kỳ môn học nào trên Thời khóa biểu:
+- Hiển thị đầy đủ: Tên môn tiếng Việt & tiếng Anh, Mã môn, Số tín chỉ, Nhóm lớp (`20261_CO3017_L01`), Phòng học & Ghi chú tòa nhà (`BK.B1-102 • Nhà BK.B1 • ĐHBK Cơ Sở 2`), Giảng viên & Email (`LÊ ĐÌNH THUẬN • thuanle@hcmut.edu.vn`).
+- Hiển thị sơ đồ các tuần học thực tế của môn đó trong học kỳ.
+- **Khung Ghi chú nhanh của môn học (`Course Quick Memo`):** Lưu ghi chú quan trọng gắn với mã môn đó (VD: link nhóm Zalo, quy định điểm danh, link BKeL).
+
+---
+
+### 7.5. Chức Năng Thêm Thời Khóa Biểu Vào Google Calendar (`Google Calendar Sync`)
+
+Hỗ trợ **2 phương thức** để người dùng thêm lịch học vào Google Calendar cực kỳ tiện lợi:
+
+1. **Phương thức 1 — Đồng bộ Tự động bằng 1-Click qua Google Calendar API (`Direct API Sync`):**
+   - Nâng cấp thêm scope `https://www.googleapis.com/auth/calendar.events` vào luồng kết nối Google OAuth 2.0 hiện có.
+   - Cho phép chọn tài khoản Google đã liên kết (`@gmail.com` hoặc `@hcmut.edu.vn`) và chọn:
+     - **Đồng bộ cả Học kỳ (`Sync Entire Semester`):** Tự động đọc chuỗi `weekSeriesDisplay` của từng môn để chỉ tạo sự kiện vào **đúng những tuần có học** (bỏ qua các tuần nghỉ `--` và các môn `dayOfWeek = 0`), điền sẵn Tiêu đề (`[CO3017] Kiến trúc Phần mềm (L01)`), Địa điểm (`Phòng BK.B1-102, Nhà BK.B1, ĐHBK Cơ Sở 2`), Mô tả (`Giảng viên: LÊ ĐÌNH THUẬN (thuanle@hcmut.edu.vn) • Nhóm: L01`) và nhắc nhở trước 30 phút.
+     - **Đồng bộ riêng Tuần đang xem** hoặc **Đồng bộ riêng 1 môn học**.
+   - Lưu `googleCalendarEventId` / `syncHash` để nếu bấm đồng bộ lại sẽ **cập nhật chứ không bao giờ tạo trùng lặp sự kiện** trên Google Calendar.
+2. **Phương thức 2 — Thêm nhanh từng buổi bằng Google Calendar Template Link & Xuất file `.ics` chuẩn (`Zero-Permission Fallback`):**
+   - Ngay trong Modal chi tiết từng môn học có nút **"Thêm buổi này vào Google Calendar"** (mở thẳng tab Google Calendar điền sẵn thông tin) và nút **"Xuất file Lịch (.ics) cả học kỳ"** để import vào Google Calendar / Apple Calendar chỉ trong 1 cú nhấp.
+
+---
+
+### 7.6. Tích Hợp Lên Trang Tổng Quan (`/`) & Trang Lịch Trình (`/calendar`)
+
+- **Trên Trang Tổng quan (`/`):**
+  - Thẻ chỉ số **`Lịch học`** ở hàng trên cùng tự động hiển thị số ca học trong ngày hôm nay (hoặc tổng số môn trong học kỳ hiện tại).
+  - Khung **`Lịch trình`** ở cột chính tự động hiển thị danh sách các ca học của ngày hôm nay / các buổi học sắp tới trong tuần kèm phòng học và cơ sở.

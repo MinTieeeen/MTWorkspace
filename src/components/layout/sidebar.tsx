@@ -81,7 +81,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       {
         id: "timetable",
         title: "Thời khóa biểu",
-        href: "/#timetable",
+        href: "/timetable",
         icon: CalendarClock,
         accentColor: "text-blue-600 dark:text-blue-400",
         animClass: "icon-anim-tick",

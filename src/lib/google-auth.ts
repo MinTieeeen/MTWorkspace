@@ -13,6 +13,7 @@ export const GOOGLE_SCOPES = [
   "email",
   "profile",
   "https://www.googleapis.com/auth/gmail.modify",
+  "https://www.googleapis.com/auth/calendar.events",
 ].join(" ");
 
 function getSessionSecret(): string {

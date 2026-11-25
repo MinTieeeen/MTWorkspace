@@ -49,12 +49,16 @@ model MyBkAccount {
   encryptedPassword String?   @db.Text
   jwtToken          String    @db.Text
   tokenExpiresAt    BigInt?
+  studentInfoJson   String?   @db.Text
   lastSyncedAt      DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  semesters AcademicSemester[]
-  courses   AcademicCourseGrade[]
+  semesters      AcademicSemester[]
+  courses        AcademicCourseGrade[]
+  otherCourses   AcademicOtherGrade[]
+  timetableItems AcademicTimetableItem[]
+  notifications  AcademicSyncNotification[]
 }
 
 model AcademicSemester {
@@ -78,24 +82,97 @@ model AcademicSemester {
 }
 
 model AcademicCourseGrade {
-  id            String   @id @default(cuid())
-  studentId     String
-  namHocHocKyId Int
-  maHocKy       String
-  monHocId      Int
-  maMonHoc      String
-  tenMonHoc     String
-  soTinChi      Int      @default(0)
-  diemChu       String?
-  diemSo        Float?
-  diemDat       String?
-  tinhTrangDiem String?
-  diemKhongIn   String?
-  nhomTo        String?
-  ghiChu        String?
-  updatedAt     DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  studentId           String
+  namHocHocKyId       Int
+  maHocKy             String
+  monHocId            Int
+  maMonHoc            String
+  tenMonHoc           String
+  soTinChi            Int      @default(0)
+  diemChu             String?
+  diemSo              Float?
+  diemDat             String?
+  tinhTrangDiem       String?
+  diemKhongIn         String?
+  nhomTo              String?
+  ghiChu              String?
+  componentScoresJson String?  @db.Text
+  isNewUpdate         Boolean  @default(false)
+  updatedAt           DateTime @updatedAt
 
   account MyBkAccount @relation(fields: [studentId], references: [studentId], onDelete: Cascade)
 
+  @@unique([studentId, maHocKy, maMonHoc, monHocId])
   @@index([studentId, maHocKy])
+}
+
+model AcademicOtherGrade {
+  id          String   @id @default(cuid())
+  studentId   String
+  maHocKy     String
+  maMonHoc    String
+  tenMonHoc   String
+  diemSo      String?
+  diemDat     String?
+  ghiChu      String?
+  capNhatCuoi String?
+  updatedAt   DateTime @updatedAt
+
+  account MyBkAccount @relation(fields: [studentId], references: [studentId], onDelete: Cascade)
+
+  @@unique([studentId, maHocKy, maMonHoc])
+  @@index([studentId])
+}
+
+model AcademicTimetableItem {
+  id                 String   @id @default(cuid())
+  studentId          String
+  scheduleId         Int
+  semesterYearCode   String
+  semesterYearName   String
+  subjectCode        String
+  subjectNameVi      String
+  subjectNameEn      String?
+  numOfCredits       Int      @default(0)
+  classGroup         String?
+  employeeName       String?
+  employeeEmail      String?
+  roomCode           String?
+  buildingCode       String?
+  buildingNote       String?
+  campusCode         String?
+  campusNameVi       String?
+  calendarYear       Int      @default(2026)
+  weeksCalendarBegin Int      @default(35)
+  dayOfWeek          Int      @default(0)
+  startLesson        Int      @default(0)
+  numOfLesson        Int      @default(0)
+  startTime          String   @default("0:00")
+  endTime            String   @default("0:00")
+  weekSeriesDisplay  String   @default("")
+  lastUpdatedTime    String?
+  courseNote         String?  @db.Text
+  updatedAt          DateTime @updatedAt
+
+  account MyBkAccount @relation(fields: [studentId], references: [studentId], onDelete: Cascade)
+
+  @@unique([studentId, scheduleId])
+  @@index([studentId, semesterYearCode])
+}
+
+model AcademicSyncNotification {
+  id           String   @id @default(cuid())
+  studentId    String
+  category     String   @default("GRADE") // "GRADE" | "EXAM" | "TIMETABLE"
+  semesterCode String?
+  courseCode   String?
+  title        String
+  message      String
+  isRead       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  account MyBkAccount @relation(fields: [studentId], references: [studentId], onDelete: Cascade)
+
+  @@index([studentId, createdAt])
 }

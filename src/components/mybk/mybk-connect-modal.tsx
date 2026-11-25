@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertCircle,
   CheckCircle2,
@@ -26,6 +27,7 @@ export function MyBkConnectModal({
   lastSyncedAt,
   onSuccess,
 }: MyBkConnectModalProps) {
+  const [mounted, setMounted] = useState(false);
   const [tab, setTab] = useState<"sso" | "token">("sso");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -34,7 +36,11 @@ export function MyBkConnectModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!open) return null;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!open || !mounted) return null;
 
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,9 +105,15 @@ export function MyBkConnectModal({
     onClose();
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl border bg-card text-card-foreground shadow-xl">
+  const modalContent = (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-2xl border bg-card text-card-foreground shadow-2xl"
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b px-5 py-4">
           <div className="flex items-center gap-2.5">
@@ -218,7 +230,7 @@ export function MyBkConnectModal({
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="VD: tien.nguyen..."
+                  placeholder="VD: tien.huynhminhcse"
                   className="h-10 w-full rounded-xl border bg-muted/40 px-3.5 text-sm text-foreground outline-none focus:border-primary focus:bg-card"
                 />
               </div>
@@ -291,4 +303,6 @@ export function MyBkConnectModal({
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }

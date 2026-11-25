@@ -291,3 +291,182 @@ Toàn bộ tính năng tích hợp SSO HCMUT và Kết quả học tập đượ
    - Hiển thị 4 thẻ chỉ số tổng quan (`CPA tích lũy`, `Tín chỉ tích lũy`, `GPA kỳ gần nhất`, `Tổng môn học`), bộ lọc LOV theo Học kỳ & Điểm chữ, tìm kiếm mã/tên môn và bảng điểm chi tiết từng học kỳ.
 3. **Trang Tổng quan (`/`)** ([src/app/page.tsx](file:///d:/Project/MTWorkspace/src/app/page.tsx)):
    - Thẻ **`GPA / CPA`** tự động hiển thị điểm CPA và tổng tín chỉ tích lũy mới nhất, bấm vào sẽ điều hướng thẳng tới `/academic-results`.
+
+
+---
+
+### 3.4. API 3: Lấy Danh Sách Điểm Môn Học Khác & Chứng Chỉ Điều Kiện (`danh-sach-diem-mon-hoc-khac/v2`)
+
+Lấy danh sách các môn học đặc thù, chứng chỉ Giáo dục thể chất, Chuẩn CNTT cơ bản, Ngày công tác xã hội và xét trình độ năm học.
+
+- **URL:**
+  ```
+  POST https://mybk.hcmut.edu.vn/api/share/ket-qua-hoc-tap/danh-sach-diem-mon-hoc-khac/v2?tuychon=BANGDIEM_MONHOC
+  ```
+- **Request Body:**
+  ```json
+  "2313425"
+  ```
+- **Response Mẫu:**
+  ```json
+  {
+    "code": "200",
+    "msg": "done",
+    "data": [
+      {
+        "maHocKy": "20232",
+        "maMonHoc": "CCGDTC",
+        "tenMonHoc": "Giáo dục thể chất",
+        "diemSo": "21",
+        "diemdat": "--",
+        "ghiChu": "Đạt",
+        "capNhatCuoi": "14/10/2024 15:56:43"
+      },
+      {
+        "maHocKy": "20241",
+        "maMonHoc": "CNTTCB",
+        "tenMonHoc": "Chuẩn kỹ năng ứng dụng Công nghệ thông tin cơ bản",
+        "diemSo": "21",
+        "diemdat": "--",
+        "ghiChu": "Đạt",
+        "capNhatCuoi": "05/12/2024 16:05:21"
+      }
+    ],
+    "sign": ""
+  }
+  ```
+
+---
+
+### 3.5. Modal Xem Chi Tiết Môn Học & Bảng Điểm Thành Phần (`CourseDetailModal`)
+
+Khi bấm vào bất kỳ dòng môn học nào trên trang `/academic-results` ([src/components/mybk/course-detail-modal.tsx](file:///d:/Project/MTWorkspace/src/components/mybk/course-detail-modal.tsx) & API `/api/mybk/course-detail`):
+1. **Hiển thị 4 chỉ số cốt lõi của môn:** Điểm tổng kết thang 10 (`diemSo`), Điểm chữ (`diemChu`), Điểm quy đổi thang 4.0 (`4.0`, `3.5`, `3.0`, ...) và Số tín chỉ (`soTinChi`).
+2. **Bảng Chi Tiết Điểm Thành Phần (`BT`, `TN`, `BTL`, `GK`, `CK`):**
+   - Hiển thị đầy đủ các cột thành phần đánh giá (`Bài tập`, `Thí nghiệm`, `Bài tập lớn`, `Giữa kỳ`, `Cuối kỳ`) kèm tỷ lệ `%` và điểm từng cột.
+   - Hỗ trợ chỉnh sửa tỷ lệ `%`, nhập điểm thành phần, thêm/xóa cột thành phần và lưu trực tiếp vào PostgreSQL (`AcademicCourseGrade.componentScoresJson`) + Cache cục bộ.
+3. **Toàn bộ Metadata Học vụ từ myBK API:** Hiển thị `maMonHoc`, `monHocId`, `maHocKy`, `namHocHocKyId`, `nhomTo`, `diemDat`, `diemKhongIn`, `ghiChu`, `capNhatCuoi`.
+4. **Lịch sử đăng ký môn học qua các kỳ & Chứng chỉ liên quan:** Tự động gom tất cả các lần học môn đó qua các kỳ (ví dụ môn rút `RT` hoặc học cải thiện) cùng bản ghi đối chiếu từ `danh-sach-diem-mon-hoc-khac/v2`.
+
+
+---
+
+### 3.6. API 4: Lấy Chi Tiết Điểm Thành Phần Của Từng Môn Học (`thong-tin-tinh-trang-diem-thanh-phan-mon-hoc/v2`)
+
+Lấy danh sách toàn bộ các cột điểm thành phần (`K.Tra`, `B.Tập`, `TNg`, `BTL/ĐA`, `Thi`, `Điểm tổng kết`) cùng tỷ lệ `%` và tình trạng điểm (`Chính thức`) cho tất cả các môn học của sinh viên.
+
+- **URL:**
+  ```
+  POST https://mybk.hcmut.edu.vn/api/share/ket-qua-hoc-tap/thong-tin-tinh-trang-diem-thanh-phan-mon-hoc/v2
+  ```
+- **Request Body:** Truyền `sinhVienId` nội bộ (lấy từ `semesters[0].sinhVienId`, ví dụ `"211441"`):
+  ```json
+  211441
+  ```
+- **Response Mẫu:**
+  ```json
+  {
+    "code": "200",
+    "msg": "done",
+    "data": [
+      {
+        "sinhVienId": 211441,
+        "namHocHocKyId": 644,
+        "monHocId": 6652,
+        "maTinhTrang": "CTH",
+        "tenTinhTrang": "Chính thức",
+        "diemThanhPhanJson": "[{\"ma\":\"tket\",\"ten\":\"Điểm tổng kết\",\"tyle\":100,\"diem\":7.6},{\"ma\":\"tkethp\",\"ten\":\"Điểm tổng kết\",\"tyle\":100,\"diem\":7.6},{\"ma\":\"kiemTra\",\"ten\":\"K.Tra\",\"tyle\":25,\"diem\":7},{\"ma\":\"baiTapThucHanh\",\"ten\":\"B.Tập\",\"tyle\":5,\"diem\":10},{\"ma\":\"baiTapLon_TieuLuan\",\"ten\":\"BTL/ĐA\",\"tyle\":20,\"diem\":9},{\"ma\":\"thi\",\"ten\":\"Thi\",\"tyle\":50,\"diem\":7}]"
+      }
+    ],
+    "sign": ""
+  }
+  ```
+- **Cách ánh xạ vào từng môn học:**
+  - Khớp với danh sách môn học qua cặp khóa `namHocHocKyId` + `monHocId`.
+  - Giải mã chuỗi JSON trong `diemThanhPhanJson` (lọc bỏ `ma === "tket"` và `ma === "tkethp"` để lấy danh sách các cột điểm thành phần thực tế: `kiemTra`, `baiTapThucHanh`, `thiNghiem`, `baiTapLon_TieuLuan`, `thi`).
+
+
+---
+
+### 3.7. API 5: Lấy Thông Tin Tổng Quan Sinh Viên Trên Bảng Điểm (`thong-tin-mo-ta-bang-diem/v2?tuychon=VIEWONLINE`)
+
+Lấy họ tên sinh viên, mã số sinh viên, mã lớp quản lý và học kỳ hiện tại để hiển thị ở khung Tổng quan Bảng điểm.
+
+- **URL:**
+  ```
+  POST https://mybk.hcmut.edu.vn/api/share/ket-qua-hoc-tap/thong-tin-mo-ta-bang-diem/v2?tuychon=VIEWONLINE
+  ```
+- **Request Body:**
+  ```json
+  "2313425"
+  ```
+- **Response Mẫu:**
+  ```json
+  {
+    "code": "200",
+    "msg": "ok",
+    "data": {
+      "masv": "2313425",
+      "malop": "MT23KHM5",
+      "hovaten": "HUỲNH MINH TIẾN",
+      "namHocHocKyTen": "Năm học 2026 - 2027 / Học kỳ 1"
+    },
+    "sign": ""
+  }
+  ```
+
+
+---
+
+## 5. Đặc Tả API Thời Khóa Biểu Sinh Viên (`he-thong-quan-ly/sinh-vien/tkb`)
+
+### 5.1. API Lấy Danh Sách Học Kỳ (`GET /api/v1/semester-year/short`)
+- **URL:**
+  ```
+  GET https://mybk.hcmut.edu.vn/api/v1/semester-year/short?null
+  ```
+- **Headers:** Sử dụng cùng bộ headers chuẩn (`authorization: <hid_Token>`, `accept: application/json`, `accept-language: vi`).
+- **Response Mẫu:**
+  ```json
+  {
+    "code": "200",
+    "msg": "OK",
+    "data": [
+      {
+        "id": 711,
+        "isCurrent": true,
+        "code": 20261,
+        "nameVi": "Học kỳ 1 Năm học 2026 - 2027",
+        "nameEn": "Academic year 2026-2027 - Semester 1"
+      },
+      {
+        "id": 713,
+        "isCurrent": false,
+        "code": 20252,
+        "nameVi": "Học kỳ 2 Năm học 2025 - 2026",
+        "nameEn": "Academic year 2025-2026 - Semester 2"
+      }
+    ],
+    "sign": null
+  }
+  ```
+
+### 5.2. API Lấy Chi Tiết Thời Khóa Biểu Theo Học Kỳ (`GET /api/v1/student/schedule`)
+- **URL:**
+  ```
+  GET https://mybk.hcmut.edu.vn/api/v1/student/schedule?studentId=211441&semesterYear=20261&null
+  ```
+  - `studentId`: Truyền `sinhVienId` nội bộ (VD: `211441`).
+  - `semesterYear`: Mã học kỳ 5 chữ số (VD: `20261`).
+- **Giải thích các trường quan trọng trong `data[]`:**
+  | Trường | Ý nghĩa & Quy ước xử lý |
+  | :--- | :--- |
+  | `subject` | `{ id, code, nameVi, nameEn, numOfCredits, numOfCourseCredits }` (Thông tin môn học). |
+  | `employee` | `{ id, code, firstName, lastName, email }` (Giảng viên phụ trách, VD: `LÊ ĐÌNH THUẬN`, `thuanle@hcmut.edu.vn`). |
+  | `subjectClassGroup` | `{ id, subjectClassGroupCode, classGroup }` (Nhóm-Tổ, VD: `"L01"`, `"A15"`). |
+  | `room` | `{ code, building: { code, note, campus: { id, code, nameVi } } }` (`BK-CS1` Lý Thường Kiệt hoặc `BK-CS2` Đông Hòa). |
+  | `calendarYear` & `weeksCalendarBegin` | Năm dương lịch (`2026`) và tuần dương lịch bắt đầu học kỳ (`35`). |
+  | `dayOfWeek` | `2` = Thứ 2 ... `7` = Thứ 7, `8` = Chủ Nhật. **`0` = Môn Đồ án / Sinh hoạt không xếp tiết cố định**. |
+  | `startLesson` & `numOfLesson` | Tiết bắt đầu (VD: `4`, `8`, `10`, hoặc `0` nếu không xếp tiết) và số tiết học. |
+  | `startTime` & `endTime` | Khung giờ học thực tế (VD: `"13:00"` đến `"14:50"`, `"15:00"` đến `"17:50"`). |
+  | `weekSeriesDisplay` | Chuỗi tuần học phân cách bởi dấu `\|` tính từ `weeksCalendarBegin` (VD: `"35\|--\|37\|38\|39\|40\|41\|--\|43\|..."`). Số tuần = Có học; `--` = Tuần nghỉ. |

@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { MailWorkspaceSkeleton } from "@/components/ui/skeleton";
 import {
   AlertCircle,
   Archive,
@@ -99,6 +100,7 @@ function MailWorkspaceContent() {
   const [accounts, setAccounts] = useState<GmailAccountOption[]>([]);
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const [apiErrors, setApiErrors] = useState<string[]>([]);
 
   // LOV Filters
@@ -148,6 +150,7 @@ function MailWorkspaceContent() {
       // ignore
     } finally {
       setLoading(false);
+      setInitialLoaded(true);
     }
   };
 
@@ -234,6 +237,8 @@ function MailWorkspaceContent() {
   };
 
   const enableUrl = apiErrors[0] ? extractEnableApiUrl(apiErrors[0]) : null;
+
+  if (!initialLoaded) return <MailWorkspaceSkeleton />;
 
   return (
     <div className="mx-auto flex h-[calc(100vh-7.5rem)] max-w-7xl flex-col gap-4">
@@ -563,13 +568,7 @@ function MailWorkspaceContent() {
 
 export default function MailPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
-          Đang tải...
-        </div>
-      }
-    >
+    <Suspense fallback={<MailWorkspaceSkeleton />}>
       <MailWorkspaceContent />
     </Suspense>
   );
