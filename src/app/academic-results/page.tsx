@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { MyBkConnectModal } from "@/components/mybk/mybk-connect-modal";
 import { AcademicResultsSkeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/toast";
 import {
   ComponentScoreItem,
   CourseDetailModal,
@@ -189,9 +190,16 @@ export default function AcademicResultsPage() {
       if (res.ok) {
         const freshData = await res.json();
         applyPayload(freshData);
+        if (force) {
+          toast.success("Đã cập nhật Kết quả học tập");
+        }
+      } else if (force) {
+        toast.error("Không thể làm mới Kết quả học tập");
       }
     } catch {
-      // Keep existing PostgreSQL data on screen if offline
+      if (force) {
+        toast.error("Lỗi kết nối khi đồng bộ");
+      }
     } finally {
       bgSyncRunningRef.current = false;
       setBgSyncing(false);

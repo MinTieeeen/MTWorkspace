@@ -16,6 +16,7 @@ import {
   Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "@/components/ui/toast";
 import type { NormalizedTimetableItem } from "@/lib/mybk-timetable";
 
 interface ScheduleDetailModalProps {
@@ -287,6 +288,7 @@ export function ScheduleDetailModal({
     if (!item.employeeEmail) return;
     await navigator.clipboard.writeText(item.employeeEmail);
     setCopiedEmail(true);
+    toast.success(`Đã sao chép ${item.employeeEmail}`);
     setTimeout(() => setCopiedEmail(false), 2000);
   };
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Calendar,
   CalendarDays,
@@ -8,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  FileCheck2,
   FolderKanban,
   Layers,
   ListTodo,
@@ -16,6 +18,7 @@ import {
   User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "@/components/ui/toast";
 import { TimetableSkeleton } from "@/components/ui/skeleton";
 import { ScheduleDetailModal } from "@/components/mybk/schedule-detail-modal";
 import { GoogleCalendarSyncModal } from "@/components/mybk/google-calendar-sync-modal";
@@ -23,6 +26,7 @@ import type {
   NormalizedTimetableItem,
   RawMyBkSemesterOption,
 } from "@/lib/mybk-timetable";
+import type { NormalizedExamItem } from "@/lib/mybk-exams";
 
 type ViewMode = "WEEK" | "SEMESTER" | "DAY";
 
@@ -237,6 +241,7 @@ function buildIcsContent(
 export default function TimetablePage() {
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [data, setData] = useState<TimetableApiResponse | null>(null);
+  const [semesterExams, setSemesterExams] = useState<NormalizedExamItem[]>([]);
   const [selectedSemester, setSelectedSemester] = useState<string>("20261");
   const [viewMode, setViewMode] = useState<ViewMode>("WEEK");
   const [selectedWeek, setSelectedWeek] = useState<number>(() =>
@@ -265,7 +270,16 @@ export default function TimetablePage() {
       if (opts?.revalidate) params.set("revalidate", "1");
       if (opts?.force) params.set("force", "1");
 
-      const res = await fetch(`/api/mybk/timetable?${params.toString()}`);
+      const [res, examRes] = await Promise.all([
+        fetch(`/api/mybk/timetable?${params.toString()}`),
+        fetch(`/api/mybk/exams?${params.toString()}`).catch(() => null),
+      ]);
+      if (examRes && examRes.ok) {
+        const examJson = await examRes.json().catch(() => null);
+        if (Array.isArray(examJson?.items)) {
+          setSemesterExams(examJson.items);
+        }
+      }
       if (!res.ok) return null;
       const json = (await res.json()) as TimetableApiResponse;
       setData(json);
@@ -324,6 +338,12 @@ export default function TimetablePage() {
         if (w > maxW) maxW = w;
       }
     }
+    for (const ex of semesterExams) {
+      if (ex.weekNumber > 0) {
+        if (ex.weekNumber < minW) minW = ex.weekNumber;
+        if (ex.weekNumber > maxW) maxW = ex.weekNumber;
+      }
+    }
 
     if (minW > maxW) return Array.from({ length: 16 }, (_, i) => 35 + i);
     const list: number[] = [];
@@ -331,7 +351,7 @@ export default function TimetablePage() {
       list.push(w);
     }
     return list;
-  }, [data?.items]);
+  }, [data?.items, semesterExams]);
 
   // Clamp selectedWeek into valid semester weeks
   useEffect(() => {
@@ -424,7 +444,12 @@ export default function TimetablePage() {
   const handleManualRefresh = async () => {
     setRevalidating(true);
     try {
-      await loadTimetable(selectedSemester, { force: true });
+      const res = await loadTimetable(selectedSemester, { force: true });
+      if (res) {
+        toast.success("Đã cập nhật Thời khóa biểu");
+      } else {
+        toast.error("Không thể làm mới Thời khóa biểu");
+      }
     } finally {
       setRevalidating(false);
     }
@@ -444,6 +469,7 @@ export default function TimetablePage() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    toast.success("Đã tải tệp Thời khóa biểu (.ics)");
   };
 
   if (!initialLoaded) {
@@ -724,6 +750,12 @@ export default function TimetablePage() {
                 selectedWeek,
                 day.dayOfWeek
               );
+              const dayExams = semesterExams.filter(
+                (ex) =>
+                  ex.examDate === dateObj.iso ||
+                  (ex.weekNumber === selectedWeek &&
+                    ex.dayOfWeek === day.dayOfWeek)
+              );
               const isToday =
                 selectedWeek === currentIsoWeek &&
                 day.dayOfWeek === todayBkDay;
@@ -736,6 +768,48 @@ export default function TimetablePage() {
                     isToday && "bg-primary/[0.03]"
                   )}
                 >
+                  {/* Overlay Exam Cards occurring on this exact day */}
+                  {dayExams.map((ex) => (
+                    <Link
+                      key={`exam-${ex.examId}`}
+                      href="/exams"
+                      className="relative flex w-full flex-col overflow-hidden rounded-xl border border-rose-500/45 bg-rose-500/10 p-2.5 text-left transition-colors hover:border-rose-500"
+                    >
+                      <span className="absolute inset-y-0 left-0 w-1 bg-rose-500" />
+                      <div className="pl-1.5 space-y-1.5">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="rounded-md bg-rose-600 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white">
+                            THI {ex.examType} • {ex.startTime}
+                          </span>
+                          <span className="font-mono text-[10px] font-semibold text-rose-600 dark:text-rose-400">
+                            {ex.durationMinutes}p
+                          </span>
+                        </div>
+
+                        <div>
+                          <span className="font-mono text-xs font-bold text-rose-700 dark:text-rose-300">
+                            {ex.subjectCode}
+                          </span>
+                          <p className="mt-0.5 line-clamp-2 font-heading text-xs font-bold leading-snug text-foreground">
+                            {ex.subjectName}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] font-mono text-foreground/85">
+                          <span className="inline-flex items-center gap-1 truncate">
+                            <FileCheck2 className="h-3 w-3 shrink-0 text-rose-500" />
+                            {ex.roomCode || "--"}
+                          </span>
+                          {ex.seatOrder !== null && (
+                            <span className="font-bold text-rose-600 dark:text-rose-400">
+                              STT:{ex.seatOrder}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+
                   {dayClasses.map((item) => {
                     const color =
                       subjectColorMap.get(item.subjectCode) ||

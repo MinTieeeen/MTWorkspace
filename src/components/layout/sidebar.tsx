@@ -89,7 +89,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       {
         id: "exams",
         title: "Lịch thi",
-        href: "/#exams",
+        href: "/exams",
         icon: FileCheck2,
         accentColor: "text-orange-600 dark:text-orange-400",
         animClass: "icon-anim-slide",
@@ -154,15 +154,13 @@ export function Sidebar() {
                       <span
                         className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors duration-200 ${
                           isActive
-                            ? "bg-primary text-primary-foreground"
+                            ? "bg-primary/20 text-primary dark:bg-primary/25"
                             : "bg-muted group-hover:bg-background"
                         }`}
                       >
                         <Icon
                           className={`h-[18px] w-[18px] shrink-0 ${item.animClass} ${
-                            isActive
-                              ? "text-primary-foreground"
-                              : item.accentColor
+                            isActive ? "text-primary" : item.accentColor
                           }`}
                         />
                       </span>

@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { MailWorkspaceSkeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/toast";
 import {
   AlertCircle,
   Archive,
@@ -229,11 +230,17 @@ function MailWorkspaceContent() {
       }
     }
 
-    await fetch("/api/gmail/recent", {
+    const res = await fetch("/api/gmail/recent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ accountId, messageId, action }),
     });
+
+    if (!res.ok) {
+      toast.error("Thao tác thư thất bại");
+    } else if (action === "ARCHIVE") {
+      toast.success("Đã lưu trữ email");
+    }
   };
 
   const enableUrl = apiErrors[0] ? extractEnableApiUrl(apiErrors[0]) : null;

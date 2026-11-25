@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  AlertCircle,
   CheckCircle2,
   KeyRound,
   LogOut,
@@ -11,6 +10,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 
 interface MyBkConnectModalProps {
   open: boolean;
@@ -34,7 +34,6 @@ export function MyBkConnectModal({
   const [jwtToken, setJwtToken] = useState("");
   const [studentId, setStudentId] = useState(connectedStudentId || "");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -45,7 +44,6 @@ export function MyBkConnectModal({
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError(null);
 
     try {
       const res = await fetch("/api/mybk/connect", {
@@ -62,15 +60,16 @@ export function MyBkConnectModal({
 
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Kết nối thất bại");
+        toast.error(data.error || "Kết nối myBK thất bại");
         return;
       }
 
+      toast.success("Đã kết nối và đồng bộ myBK");
       window.dispatchEvent(new Event("mt-mybk-updated"));
       onSuccess?.();
       onClose();
     } catch {
-      setError("Lỗi kết nối mạng tới máy chủ");
+      toast.error("Lỗi kết nối máy chủ");
     } finally {
       setLoading(false);
     }
@@ -78,19 +77,19 @@ export function MyBkConnectModal({
 
   const handleResync = async () => {
     setLoading(true);
-    setError(null);
     try {
       const res = await fetch("/api/mybk/transcript", { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Đồng bộ thất bại");
+        toast.error(data.error || "Đồng bộ thất bại");
         return;
       }
+      toast.success("Đã làm mới dữ liệu myBK");
       window.dispatchEvent(new Event("mt-mybk-updated"));
       onSuccess?.();
       onClose();
     } catch {
-      setError("Lỗi kết nối khi đồng bộ");
+      toast.error("Lỗi kết nối khi đồng bộ");
     } finally {
       setLoading(false);
     }
@@ -99,6 +98,7 @@ export function MyBkConnectModal({
   const handleDisconnect = async () => {
     setLoading(true);
     await fetch("/api/mybk/connect", { method: "DELETE" });
+    toast.info("Đã ngắt kết nối myBK");
     window.dispatchEvent(new Event("mt-mybk-updated"));
     onSuccess?.();
     setLoading(false);
@@ -179,10 +179,7 @@ export function MyBkConnectModal({
         <div className="grid grid-cols-2 gap-1.5 border-b bg-muted/20 p-2.5">
           <button
             type="button"
-            onClick={() => {
-              setTab("sso");
-              setError(null);
-            }}
+            onClick={() => setTab("sso")}
             className={`flex items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition-colors ${
               tab === "sso"
                 ? "bg-primary text-primary-foreground"
@@ -195,10 +192,7 @@ export function MyBkConnectModal({
 
           <button
             type="button"
-            onClick={() => {
-              setTab("token");
-              setError(null);
-            }}
+            onClick={() => setTab("token")}
             className={`flex items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition-colors ${
               tab === "token"
                 ? "bg-primary text-primary-foreground"
@@ -212,12 +206,6 @@ export function MyBkConnectModal({
 
         {/* Form Body */}
         <form onSubmit={handleConnect} className="p-5 space-y-4">
-          {error && (
-            <div className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-xs font-medium text-destructive">
-              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
-            </div>
-          )}
 
           {tab === "sso" ? (
             <>

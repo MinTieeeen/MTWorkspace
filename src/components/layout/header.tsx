@@ -8,6 +8,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/": "Tổng quan",
   "/mail": "Hộp thư Gmail",
   "/timetable": "Thời khóa biểu",
+  "/exams": "Lịch thi",
   "/academic-results": "Kết quả học tập",
 };
 

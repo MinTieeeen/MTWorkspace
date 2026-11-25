@@ -13,6 +13,7 @@ export default {
       fontFamily: {
         sans: ["var(--font-jakarta)", "sans-serif"],
         display: ["var(--font-outfit)", "var(--font-jakarta)", "sans-serif"],
+        heading: ["var(--font-outfit)", "var(--font-jakarta)", "sans-serif"],
         mono: ["var(--font-jetbrains)", "monospace"],
       },
       colors: {

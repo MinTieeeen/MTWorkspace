@@ -58,6 +58,7 @@ model MyBkAccount {
   courses        AcademicCourseGrade[]
   otherCourses   AcademicOtherGrade[]
   timetableItems AcademicTimetableItem[]
+  examItems      AcademicExamItem[]
   notifications  AcademicSyncNotification[]
 }
 
@@ -158,6 +159,47 @@ model AcademicTimetableItem {
   account MyBkAccount @relation(fields: [studentId], references: [studentId], onDelete: Cascade)
 
   @@unique([studentId, scheduleId])
+  @@index([studentId, semesterYearCode])
+}
+
+model AcademicExamItem {
+  id                  String   @id @default(cuid())
+  studentId           String
+  examId              Int
+  semesterYearCode    String
+  semesterYearName    String
+  academicYear        Int      @default(2026)
+  semester            Int      @default(1)
+  subjectId           Int?
+  subjectCode         String
+  subjectName         String
+  numOfCredits        Int      @default(0)
+  classGroup          String?
+  examType            String   @default("CK") // "GK" | "CK" | "THILAI"
+  examDate            String   // "YYYY-MM-DD"
+  dayOfWeek           Int      @default(0)
+  weekNumber          Int      @default(0)
+  startLesson         Int      @default(0)
+  numOfLesson         Int      @default(0)
+  endLesson           Int      @default(0)
+  startTimeRaw        String   @default("07g00")
+  startTime           String   @default("07:00")
+  endTime             String   @default("08:30")
+  durationMinutes     Int      @default(60)
+  campusCode          String?
+  buildingCode        String?
+  roomCode            String?
+  seatOrder           Int?     // NLMHSV_STT (Số thứ tự danh sách phòng thi)
+  gradeDeadline       String?  // NHAPDIEM_DEADLINE (VD: "07/01/2027")
+  examNote            String?  // NLMHSV_GHICHU
+  personalNote        String?  @db.Text
+  prepStatus          String   @default("NOT_STARTED") // "NOT_STARTED" | "STUDYING" | "READY"
+  lastUpdatedTime     String?
+  updatedAt           DateTime @updatedAt
+
+  account MyBkAccount @relation(fields: [studentId], references: [studentId], onDelete: Cascade)
+
+  @@unique([studentId, examId])
   @@index([studentId, semesterYearCode])
 }
 

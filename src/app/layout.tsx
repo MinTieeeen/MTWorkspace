@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans, Outfit, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
+import { ToastViewport } from "@/components/ui/toast";
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin", "vietnamese"],
@@ -48,6 +49,7 @@ export default function RootLayout({
             </main>
           </div>
         </div>
+        <ToastViewport />
       </body>
     </html>
   );

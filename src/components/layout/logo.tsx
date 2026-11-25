@@ -2,7 +2,7 @@ export function BrandLogo() {
   return (
     <div className="group flex items-center gap-3 cursor-pointer">
       {/* Solid Single-Color Logo Box with Internal SVG Path Animation on Hover */}
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm dark:bg-primary/85">
         <svg
           viewBox="0 0 36 36"
           fill="none"

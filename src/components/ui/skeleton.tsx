@@ -17,20 +17,7 @@ export function Skeleton({
 
 export function DashboardSkeleton() {
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      {/* Top 4 Stat Card Skeletons */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border bg-card p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <Skeleton className="h-4 w-20 rounded-md" />
-              <Skeleton className="h-10 w-10 rounded-xl" />
-            </div>
-            <Skeleton className="h-8 w-24 rounded-lg" />
-          </div>
-        ))}
-      </div>
-
+    <div className="mx-auto max-w-6xl">
       {/* Main 2-Column Workspace Grid Skeleton */}
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
@@ -301,6 +288,75 @@ export function TimetableSkeleton() {
           <Skeleton className="h-4 w-24 rounded-md" />
         </div>
         <Skeleton className="h-6 w-36 rounded-lg" />
+      </div>
+    </div>
+  );
+}
+
+export function ExamScheduleSkeleton() {
+  return (
+    <div className="mx-auto max-w-6xl space-y-4">
+      {/* Top Toolbar Skeleton */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border bg-card px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-9 w-56 rounded-xl" />
+          <Skeleton className="h-9 w-40 rounded-xl" />
+        </div>
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-9 w-44 rounded-xl" />
+          <Skeleton className="h-9 w-14 rounded-xl" />
+          <Skeleton className="h-9 w-9 rounded-xl" />
+        </div>
+      </div>
+
+      {/* Asymmetric Distributed Bento Skeleton (Left 5/12, Right 7/12) */}
+      <div className="grid items-start gap-4 lg:grid-cols-12">
+        {/* Left Bento Stack */}
+        <div className="space-y-3 lg:col-span-5">
+          {/* Compact Countdown Bar */}
+          <div className="flex items-center justify-between rounded-2xl border bg-card px-4 py-3">
+            <Skeleton className="h-6 w-28 rounded-lg" />
+            <div className="flex items-center gap-1.5">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-7 w-11 rounded-lg" />
+              ))}
+            </div>
+          </div>
+
+          {/* Main Subject Card */}
+          <div className="space-y-3 rounded-2xl border bg-card p-5">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-5 w-36 rounded-lg" />
+              <Skeleton className="h-5 w-24 rounded-lg" />
+            </div>
+            <Skeleton className="h-7 w-4/5 rounded-lg" />
+            <Skeleton className="h-4 w-full rounded-md" />
+          </div>
+
+          {/* 4 Mini Attribute Tiles */}
+          <div className="grid grid-cols-2 gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="space-y-2 rounded-2xl border bg-card p-4">
+                <Skeleton className="h-3.5 w-20 rounded-md" />
+                <Skeleton className="h-5 w-28 rounded-md" />
+                <Skeleton className="h-3.5 w-24 rounded-md" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Right Wider List */}
+        <div className="flex flex-col rounded-2xl border bg-card lg:col-span-7">
+          <div className="flex items-center justify-between border-b px-4 py-3">
+            <Skeleton className="h-4 w-40 rounded-md" />
+            <Skeleton className="h-5 w-16 rounded-lg" />
+          </div>
+          <div className="space-y-2.5 p-3.5">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-18 w-full rounded-xl" />
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

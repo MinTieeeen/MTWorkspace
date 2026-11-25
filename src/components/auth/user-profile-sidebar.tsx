@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/toast";
 import {
   ChevronUp,
   LogOut,
   Plus,
   Trash2,
-  AlertCircle,
 } from "lucide-react";
 
 export interface LinkedGoogleAccount {
@@ -32,7 +32,6 @@ export function UserProfileSidebar() {
   const [isGoogleConfigured, setIsGoogleConfigured] = useState(true);
   const [loading, setLoading] = useState(true);
   const [openMenu, setOpenMenu] = useState(false);
-  const [showConfigNotice, setShowConfigNotice] = useState(false);
 
   const loadUser = async () => {
     try {
@@ -54,7 +53,7 @@ export function UserProfileSidebar() {
 
   const handleGoogleSignIn = (mode: "login" | "link" = "login") => {
     if (!isGoogleConfigured) {
-      setShowConfigNotice((prev) => !prev);
+      toast.error("Chưa cấu hình GOOGLE_CLIENT_ID trong .env");
       return;
     }
     window.location.href = `/api/auth/google?mode=${mode}`;
@@ -64,13 +63,20 @@ export function UserProfileSidebar() {
     await fetch("/api/auth/logout", { method: "POST" });
     setUser(null);
     setOpenMenu(false);
+    toast.info("Đã đăng xuất tài khoản Google");
     window.dispatchEvent(new Event("mt-auth-updated"));
   };
 
   const handleUnlinkAccount = async (accountId: string) => {
-    await fetch(`/api/user/me?accountId=${encodeURIComponent(accountId)}`, {
-      method: "DELETE",
-    });
+    const res = await fetch(
+      `/api/user/me?accountId=${encodeURIComponent(accountId)}`,
+      { method: "DELETE" }
+    );
+    if (res.ok) {
+      toast.success("Đã hủy liên kết tài khoản");
+    } else {
+      toast.error("Không thể hủy liên kết tài khoản");
+    }
     await loadUser();
     window.dispatchEvent(new Event("mt-auth-updated"));
   };
@@ -89,21 +95,6 @@ export function UserProfileSidebar() {
 
   return (
     <div className="relative border-t p-3">
-      {/* Notice Popover if GOOGLE_CLIENT_ID is not filled in .env yet */}
-      {showConfigNotice && !isGoogleConfigured && (
-        <div className="mb-2 rounded-xl border border-amber-500/40 bg-card p-3 text-xs shadow-lg">
-          <div className="flex items-center gap-2 font-semibold text-amber-600 dark:text-amber-400">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>Chưa điền Google OAuth Key</span>
-          </div>
-          <p className="mt-1.5 leading-relaxed text-muted-foreground">
-            Hãy điền <code className="font-mono text-foreground">GOOGLE_CLIENT_ID</code> và{" "}
-            <code className="font-mono text-foreground">GOOGLE_CLIENT_SECRET</code> vào file{" "}
-            <code className="font-mono text-foreground">.env</code> để mở đăng nhập Google.
-          </p>
-        </div>
-      )}
-
       {/* Multi-Account Management Popover when Logged In */}
       {user && openMenu && (
         <div className="mb-2 rounded-xl border bg-card p-3 shadow-lg space-y-3">

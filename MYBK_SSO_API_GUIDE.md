@@ -470,3 +470,23 @@ Lấy họ tên sinh viên, mã số sinh viên, mã lớp quản lý và học 
   | `startLesson` & `numOfLesson` | Tiết bắt đầu (VD: `4`, `8`, `10`, hoặc `0` nếu không xếp tiết) và số tiết học. |
   | `startTime` & `endTime` | Khung giờ học thực tế (VD: `"13:00"` đến `"14:50"`, `"15:00"` đến `"17:50"`). |
   | `weekSeriesDisplay` | Chuỗi tuần học phân cách bởi dấu `\|` tính từ `weeksCalendarBegin` (VD: `"35\|--\|37\|38\|39\|40\|41\|--\|43\|..."`). Số tuần = Có học; `--` = Tuần nghỉ. |
+
+
+---
+
+## 6. Đặc Tả API Lịch Thi Sinh Viên (`he-thong-quan-ly/sinh-vien/lich-thi`)
+
+### 6.1. API Lấy Danh Sách Lịch Thi Theo Học Kỳ (`GET /api/thoi-khoa-bieu/lich-thi-sinh-vien/v1`)
+- **URL:**
+  ```
+  GET https://mybk.hcmut.edu.vn/api/thoi-khoa-bieu/lich-thi-sinh-vien/v1?masv=2313425&namhoc=2026&hocky=1&null
+  ```
+- **Các trường dữ liệu chính trong `data.data[]`:**
+  - `ID`: Khóa định danh ca thi (`examId`).
+  - `MAMONHOC`, `TENMONHOC`, `SOTC`, `NHOMLOP`: Thông tin môn và nhóm thi (`L02_B_Thi`, `L02_A_Ktr`).
+  - `LOAITHI`: `"GK"` (Giữa kỳ) hoặc `"CK"` (Cuối kỳ).
+  - `NGAYTHI`, `THU`, `TUANDLBD`: Ngày thi (`"2026-12-24"`), thứ trong tuần và tuần dương lịch Bách Khoa (`42`, `51`, `52`).
+  - `GIOBD`, `GIO_SOPHUT`: Giờ bắt đầu (`"07g00"`, `"09g30"`, `"13g00"`) và số phút làm bài (`"60"`, `"70"`, `"90"`).
+  - `MAPHONG`, `MACOSO`, `MADAY`: Phòng thi (`"BK.B6-212"`), cơ sở (`"BK-CS2"`) và tòa nhà.
+  - `NLMHSV_STT`: Số thứ tự trong danh sách phòng thi (`STT`).
+  - `NHAPDIEM_DEADLINE`: Hạn chót công bố / nhập điểm dự kiến (`"07/01/2027"`).
