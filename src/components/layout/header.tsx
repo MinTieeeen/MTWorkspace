@@ -1,66 +1,79 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Plus, Search, Settings } from "lucide-react";
+import { Search } from "lucide-react";
+import { AccountMenu } from "@/components/auth/account-menu";
+import { BRAND } from "@/lib/brand";
+import { DAY_FULL_LABELS, getCurrentIsoWeek, getTodayBkDayOfWeek } from "@/lib/format";
+import { BrandMark } from "./logo";
+import { NextUpChip } from "./next-up-chip";
+import { getPageTitle, openCommandPalette } from "./nav-items";
 import { ThemeToggle } from "./theme-toggle";
 
-const PAGE_TITLES: Record<string, string> = {
-  "/": "Tổng quan",
-  "/mail": "Hộp thư Gmail",
-  "/timetable": "Thời khóa biểu",
-  "/exams": "Lịch thi",
-  "/academic-results": "Kết quả học tập",
-};
+/** "Thứ Năm, 26/11 · Tuần 48": tính ở client để không lệch múi giờ khi render server */
+function useTodayLabel() {
+  const [label, setLabel] = useState("");
+  useEffect(() => {
+    const update = () => {
+      const d = new Date();
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      setLabel(
+        `${DAY_FULL_LABELS[getTodayBkDayOfWeek(d)]}, ${dd}/${mm} · Tuần ${getCurrentIsoWeek(d)}`
+      );
+    };
+    update();
+    const t = setInterval(update, 60000);
+    return () => clearInterval(t);
+  }, []);
+  return label;
+}
 
 export function Header() {
   const pathname = usePathname();
-  const pageTitle = PAGE_TITLES[pathname] || "Tổng quan";
+  const title = getPageTitle(pathname);
+  const today = useTodayLabel();
 
   return (
-    <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background px-6">
-      {/* Left: Page Title */}
-      <div className="flex items-center">
-        <h1 className="font-display text-lg font-bold tracking-tight">
-          {pageTitle}
+    <header className="relative z-30 flex h-16 shrink-0 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur-xl sm:px-6">
+      <Link
+        href="/"
+        aria-label={`${BRAND.name}, về Tổng quan`}
+        className="brand-logo shrink-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      >
+        <BrandMark />
+      </Link>
+
+      <div className="min-w-0">
+        <h1
+          key={pathname}
+          className="mt-title-in truncate font-display text-lg font-bold leading-tight tracking-tight"
+        >
+          {title}
         </h1>
+        <p className="h-4 truncate text-xs text-muted-foreground">{today}</p>
       </div>
 
-      {/* Right: Fast Actions & Theme Toggle */}
-      <div className="flex items-center gap-2.5">
-        {/* Quick Search */}
+      <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+        <NextUpChip />
+
         <button
           type="button"
-          className="group flex h-10 w-60 items-center justify-between rounded-xl border bg-card px-3.5 text-sm text-muted-foreground transition-colors duration-200 hover:border-primary/40 hover:text-foreground"
+          onClick={openCommandPalette}
+          aria-label="Tìm kiếm (Ctrl K)"
+          className="group inline-flex h-9 items-center gap-2 rounded-lg border bg-card px-2.5 text-[13px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground lg:w-52"
         >
-          <span className="flex items-center gap-2">
-            <Search className="h-4 w-4 text-muted-foreground icon-anim-wiggle group-hover:text-primary" />
-            <span>Tìm kiếm...</span>
-          </span>
-          <kbd className="font-mono rounded-md border bg-muted px-1.5 py-0.5 text-xs font-semibold text-muted-foreground">
+          <Search className="h-4 w-4 shrink-0 transition-colors group-hover:text-primary" />
+          <span className="hidden flex-1 text-left lg:inline">Tìm kiếm...</span>
+          <kbd className="hidden rounded border bg-muted px-1.5 font-mono text-xs lg:inline">
             Ctrl K
           </kbd>
         </button>
 
-        {/* Quick Add Task */}
-        <button
-          type="button"
-          className="group inline-flex h-10 items-center gap-1.5 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors duration-200 hover:bg-primary/90"
-        >
-          <Plus className="h-4 w-4 transition-transform duration-300 group-hover:rotate-90" />
-          <span>Tạo việc</span>
-        </button>
-
-        {/* Theme Toggle (Light / Dark) */}
         <ThemeToggle />
-
-        {/* Settings Action */}
-        <button
-          type="button"
-          title="Cài đặt"
-          className="group inline-flex h-10 w-10 items-center justify-center rounded-xl border bg-card text-muted-foreground transition-colors duration-200 hover:border-primary/40 hover:bg-accent hover:text-accent-foreground"
-        >
-          <Settings className="h-4 w-4 transition-transform duration-500 group-hover:rotate-90" />
-        </button>
+        <AccountMenu />
       </div>
     </header>
   );

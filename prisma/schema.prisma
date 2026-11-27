@@ -49,32 +49,37 @@ model MyBkAccount {
   encryptedPassword String?   @db.Text
   jwtToken          String    @db.Text
   tokenExpiresAt    BigInt?
-  studentInfoJson   String?   @db.Text
-  lastSyncedAt      DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  studentInfoJson    String?   @db.Text
+  curriculumInfoJson String?   @db.Text
+  lastSyncedAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  semesters      AcademicSemester[]
-  courses        AcademicCourseGrade[]
-  otherCourses   AcademicOtherGrade[]
-  timetableItems AcademicTimetableItem[]
-  examItems      AcademicExamItem[]
-  notifications  AcademicSyncNotification[]
+  semesters       AcademicSemester[]
+  courses         AcademicCourseGrade[]
+  otherCourses    AcademicOtherGrade[]
+  timetableItems  AcademicTimetableItem[]
+  examItems       AcademicExamItem[]
+  curriculumItems AcademicCurriculumItem[]
+  notifications   AcademicSyncNotification[]
 }
 
 model AcademicSemester {
-  id             String   @id @default(cuid())
-  studentId      String
-  namHocHocKyId  Int
-  maNamHocHocKy  String
-  namHocHocKyTen String
-  soTCTLHocKy    Int      @default(0)
-  diemTBTLHocKy  String   @default("0.0")
-  soTCTLChung    String   @default("0")
-  diemTBTLChung  String   @default("0.0")
-  capNhatCuoi    String?
-  sortOrder      Int      @default(0)
-  updatedAt      DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  studentId            String
+  namHocHocKyId        Int
+  maNamHocHocKy        String
+  namHocHocKyTen       String
+  soTCTLHocKy          Int      @default(0)
+  diemTBTLHocKy        String   @default("0.0") // Hệ 4.0 học kỳ (fourPointScale)
+  diemTBHocKyHe10      String?                  // Hệ 10 học kỳ (grade)
+  diemChuHocKy         String?                  // Điểm chữ học kỳ (letterGrade)
+  soTCTLChung          String   @default("0")   // Tín chỉ tích lũy chung
+  diemTBTLChung        String   @default("0.0") // CPA Hệ 4.0 chung (fourPointScaleCommonCumulativeGPA)
+  diemTBTLChungHe10    String?                  // CPA Hệ 10 chung (tenPointScaleCommonCumulativeGPA)
+  capNhatCuoi          String?
+  sortOrder            Int      @default(0)
+  updatedAt            DateTime @updatedAt
 
   account MyBkAccount @relation(fields: [studentId], references: [studentId], onDelete: Cascade)
 
@@ -90,14 +95,18 @@ model AcademicCourseGrade {
   monHocId            Int
   maMonHoc            String
   tenMonHoc           String
+  tenMonHocEn         String?
   soTinChi            Int      @default(0)
+  soTinChiHocPhan     Float?
   diemChu             String?
   diemSo              Float?
   diemDat             String?
   tinhTrangDiem       String?
   diemKhongIn         String?
   nhomTo              String?
+  nhomThucHanh        String?
   ghiChu              String?
+  ngayCongBoDiem      String?
   componentScoresJson String?  @db.Text
   isNewUpdate         Boolean  @default(false)
   updatedAt           DateTime @updatedAt
@@ -203,6 +212,39 @@ model AcademicExamItem {
   @@index([studentId, semesterYearCode])
 }
 
+model AcademicCurriculumItem {
+  id                  String   @id @default(cuid())
+  studentId           String
+  uniqueKey           String
+  stt                 Int      @default(0)
+  blockId             Int      @default(0)
+  blockCode           String
+  blockName           String
+  blockTypeLabel      String   @default("Bắt buộc")
+  isRequiredBlock     Boolean  @default(true)
+  isBlockCompleted    Boolean  @default(false)
+  requiredCredits     Int      @default(0)
+  earnedCredits       Int      @default(0)
+  requiredSubjects    Int      @default(0)
+  earnedSubjects      Int      @default(0)
+  subjectId           Int?
+  subjectCode         String?
+  subjectName         String?
+  credits             Int?
+  numericScore        Float?
+  letterGrade         String?
+  isPassed            Boolean  @default(false)
+  isEffective         Boolean  @default(false)
+  freeElectiveRef     String?
+  note                String?
+  updatedAt           DateTime @updatedAt
+
+  account MyBkAccount @relation(fields: [studentId], references: [studentId], onDelete: Cascade)
+
+  @@unique([studentId, uniqueKey])
+  @@index([studentId, blockId])
+}
+
 model AcademicSyncNotification {
   id           String   @id @default(cuid())
   studentId    String
@@ -217,4 +259,177 @@ model AcademicSyncNotification {
   account MyBkAccount @relation(fields: [studentId], references: [studentId], onDelete: Cascade)
 
   @@index([studentId, createdAt])
+}
+
+// =====================================================================
+// Phân hệ Đồ án chuyên ngành (xem THESIS_PLAN.md)
+// =====================================================================
+
+/// Trạng thái kết nối tới hệ thống đồ án của trường (không lưu token hay cookie)
+model ProjectCseConnection {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  googleAccountId String?
+  authState      String    @default("OK") // OK | NEEDS_REAUTH | BACKOFF
+  authFailCount  Int       @default(0)
+  lastError      String?
+  lastAttemptAt  DateTime?
+  lastSyncedAt   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+/// Đồ án: bản phản chiếu từ hệ thống trường (REMOTE) hoặc nhập tay (MANUAL)
+model ThesisProject {
+  id                String   @id @default(cuid())
+  userId            String
+  remoteId          String?
+  source            String   @default("REMOTE") // REMOTE | MANUAL
+  customId          String?                      // mã hiển thị, vd HK261-DAGD1-242
+  titleVi           String?
+  titleEn           String?
+  descriptionJson   String?  @db.Text            // { vi, en }
+  requirementsJson  String?  @db.Text
+  referencesJson    String?  @db.Text
+  status            String?
+  reviewerStatus    String?
+  committeeStatus   String?
+  batchId           String?
+  batchName         String?
+  semesterName      String?
+  projectType       String?
+  major             String?
+  department        String?
+  supervisorJson    String?  @db.Text            // { name, email, phone }
+  coSupervisorsJson String?  @db.Text
+  membersJson       String?  @db.Text            // [{ studentId, name }]
+  isRegistered      Boolean?
+  isDeferred        Boolean?
+  contentHash       String?
+  syncedAt          DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  milestones ThesisMilestone[]
+  committee  ThesisCommittee?
+  meetings   ThesisMeeting[]
+
+  @@unique([userId, remoteId])
+  @@index([userId])
+}
+
+model ThesisMilestone {
+  id        String    @id @default(cuid())
+  projectId String
+  source    String    // SCHOOL | PERSONAL
+  key       String    // vd proposalSubmission, reportSubmission
+  title     String
+  startAt   DateTime?
+  endAt     DateTime?
+  doneAt    DateTime?
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  project ThesisProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+/// Hội đồng bảo vệ (phản chiếu từ trường hoặc nhập tay)
+model ThesisCommittee {
+  id            String    @id @default(cuid())
+  projectId     String    @unique
+  remoteId      String?
+  source        String    @default("REMOTE") // REMOTE | MANUAL
+  name          String?
+  status        String?                      // draft | ... (hiển thị nguyên văn nếu lạ)
+  startAt       DateTime?
+  campus        String?
+  room          String?
+  language      String?
+  chairJson     String?   @db.Text           // { name, email }
+  secretaryJson String?   @db.Text
+  membersJson   String?   @db.Text           // [{ name, email, role }]
+  projectCount  Int?
+  contentHash   String?
+  syncedAt      DateTime?
+  updatedAt     DateTime  @updatedAt
+
+  project ThesisProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ThesisMeeting {
+  id            String    @id @default(cuid())
+  projectId     String
+  kind          String    @default("SUPERVISOR") // SUPERVISOR | TEAM | MIDTERM | OTHER
+  title         String
+  startAt       DateTime
+  endAt         DateTime?
+  mode          String    @default("IN_PERSON") // IN_PERSON | ONLINE
+  location      String?
+  meetUrl       String?
+  attendeesJson String?   @db.Text
+  agendaMd      String?   @db.Text
+  minutesMd     String?   @db.Text
+  status        String    @default("PLANNED")   // PLANNED | DONE | CANCELLED
+  recurrence    String?
+  gcalEventId   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  project ThesisProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, startAt])
+}
+
+/// Công việc (dùng chung: đồ án hiện tại, toàn workspace về sau)
+model Task {
+  id            String    @id @default(cuid())
+  userId        String
+  projectId     String?
+  meetingId     String?
+  milestoneId   String?
+  title         String
+  descriptionMd String?   @db.Text
+  status        String    @default("TODO") // TODO | DOING | DONE
+  priority      Int       @default(0)
+  dueAt         DateTime?
+  checklistJson String?   @db.Text
+  sortOrder     Int       @default(0)
+  doneAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId, projectId, status])
+}
+
+/// Ghi chú (dùng chung)
+model Note {
+  id        String    @id @default(cuid())
+  userId    String
+  projectId String?
+  meetingId String?
+  kind      String    @default("NOTE") // NOTE | WEEKLY_LOG | IDEA | QUESTION
+  title     String
+  bodyMd    String    @db.Text
+  tagsJson  String?   @db.Text
+  pinned    Boolean   @default(false)
+  weekOf    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId, projectId, pinned])
+}
+
+/// Liên kết / tài liệu (dùng chung)
+model ResourceLink {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String?
+  kind      String   @default("OTHER") // REPO | DRIVE | DOC | DESIGN | PAPER | OTHER
+  title     String
+  url       String
+  createdAt DateTime @default(now())
+
+  @@index([userId, projectId])
 }

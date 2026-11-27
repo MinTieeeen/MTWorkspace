@@ -24,7 +24,7 @@ yarn-error.log*
 .env*.local
 .mybk-transcript-cache.json
 .mybk-timetable-cache.json
-
+.mybk-exams-cache.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts

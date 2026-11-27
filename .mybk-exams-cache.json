@@ -2,7 +2,7 @@
   "connected": true,
   "studentId": "2313425",
   "currentSemesterCode": "20261",
-  "lastSyncedAt": "2026-11-25T17:02:28.273Z",
+  "lastSyncedAt": "2026-11-27T17:12:42.426Z",
   "semesters": [
     {
       "id": 709,
@@ -1996,7 +1996,7 @@
     ],
     "20261": [
       {
-        "ID": 121509257,
+        "ID": 121631963,
         "TKBTUANID": 50285958,
         "NAMHOC": 2026,
         "HOCKY": 1,
@@ -2041,7 +2041,7 @@
         "HIDDEN_BY": null
       },
       {
-        "ID": 121473662,
+        "ID": 121596366,
         "TKBTUANID": 50285330,
         "NAMHOC": 2026,
         "HOCKY": 1,
@@ -2086,7 +2086,7 @@
         "HIDDEN_BY": null
       },
       {
-        "ID": 121480201,
+        "ID": 121602905,
         "TKBTUANID": 50285678,
         "NAMHOC": 2026,
         "HOCKY": 1,
@@ -2131,7 +2131,7 @@
         "HIDDEN_BY": null
       },
       {
-        "ID": 121480038,
+        "ID": 121602742,
         "TKBTUANID": 50285673,
         "NAMHOC": 2026,
         "HOCKY": 1,
@@ -2223,7 +2223,24 @@
     ]
   },
   "prepStatuses": {
-    "121480038": "NOT_STARTED"
+    "99990526": "NOT_STARTED",
+    "108553612": "NOT_STARTED",
+    "108569663": "NOT_STARTED",
+    "108621684": "NOT_STARTED",
+    "108632990": "NOT_STARTED",
+    "108647347": "NOT_STARTED",
+    "108658141": "NOT_STARTED",
+    "109534008": "NOT_STARTED",
+    "110014844": "NOT_STARTED",
+    "118152695": "NOT_STARTED",
+    "121473662": "NOT_STARTED",
+    "121480038": "NOT_STARTED",
+    "121480201": "NOT_STARTED",
+    "121509257": "NOT_STARTED",
+    "121596366": "NOT_STARTED",
+    "121602742": "NOT_STARTED",
+    "121602905": "NOT_STARTED",
+    "121631963": "NOT_STARTED"
   },
   "personalNotes": {}
 }

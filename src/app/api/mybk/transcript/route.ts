@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { errorResponse } from "@/lib/api-error";
 import {
   backgroundRevalidateMyBkTranscript,
   getStoredMyBkTranscript,
@@ -12,13 +13,10 @@ export async function GET(request: NextRequest) {
     try {
       const fresh = await backgroundRevalidateMyBkTranscript(force);
       return NextResponse.json(fresh);
-    } catch {
-      // Offline / maintenance fallback: return stored PostgreSQL data without breaking the UI
-      const fallback = await getStoredMyBkTranscript();
-      return NextResponse.json({
-        ...fallback,
-        syncFallback: true,
-      });
+    } catch (error) {
+      // Offline / bảo trì: trả dữ liệu đã lưu kèm cảnh báo + mã lỗi để giao diện báo đúng
+      const fallback = await getStoredMyBkTranscript().catch(() => null);
+      return errorResponse(error, fallback);
     }
   }
 

@@ -1,17 +1,27 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertCircle,
-  ArrowUpRight,
+  ArrowRight,
   Check,
-  ChevronDown,
   ExternalLink,
   Mail,
   RefreshCw,
 } from "lucide-react";
+import { SenderAvatar } from "@/components/mail/sender-avatar";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ConnectPrompt, EmptyState, ErrorState } from "@/components/ui/state";
+import { toast } from "@/components/ui/toast";
+import {
+  extractEnableApiUrl,
+  formatMailDate,
+  gmailThreadUrl,
+} from "@/lib/gmail-ui";
+import { cn } from "@/lib/utils";
 
 interface GmailMessageItem {
   id: string;
@@ -28,232 +38,189 @@ interface GmailMessageItem {
   starred: boolean;
 }
 
-type WidgetLovFilter =
-  | "ALL"
-  | "HCMUT"
-  | "PERSONAL"
-  | "UNREAD"
-  | "STARRED";
+type WidgetFilter = "INBOX" | "UNREAD" | "STARRED";
 
-const WIDGET_LOV_OPTIONS: Array<{ value: WidgetLovFilter; label: string }> = [
-  { value: "ALL", label: "Tất cả" },
-  { value: "HCMUT", label: "HCMUT" },
-  { value: "PERSONAL", label: "Cá nhân" },
+const FILTERS: { value: WidgetFilter; label: string }[] = [
+  { value: "INBOX", label: "Tất cả" },
   { value: "UNREAD", label: "Chưa đọc" },
   { value: "STARRED", label: "Gắn sao" },
 ];
-
-function extractEnableApiUrl(rawError: string): string | null {
-  const match = rawError.match(/https:\/\/console\.developers\.google\.com\S+/);
-  return match ? match[0] : null;
-}
 
 export function GmailInboxWidget() {
   const [messages, setMessages] = useState<GmailMessageItem[]>([]);
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [initialLoaded, setInitialLoaded] = useState(false);
-  const [lovFilter, setLovFilter] = useState<WidgetLovFilter>("ALL");
-  const [lovOpen, setLovOpen] = useState(false);
+  const [filter, setFilter] = useState<WidgetFilter>("INBOX");
   const [apiErrors, setApiErrors] = useState<string[]>([]);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const fetchMessages = async (currentFilter: WidgetLovFilter = lovFilter) => {
+  const fetchMessages = useCallback(async () => {
     setLoading(true);
     setApiErrors([]);
+    setError(null);
     try {
-      const params = new URLSearchParams({ limit: "8" });
-      if (currentFilter === "HCMUT" || currentFilter === "PERSONAL") {
-        params.set("account", currentFilter);
-        params.set("folder", "INBOX");
-      } else if (currentFilter === "UNREAD" || currentFilter === "STARRED") {
-        params.set("folder", currentFilter);
-      } else {
-        params.set("folder", "INBOX");
-      }
-
+      const params = new URLSearchParams({ limit: "8", folder: filter });
       const res = await fetch(`/api/gmail/recent?${params.toString()}`, {
         cache: "no-store",
       });
-      if (!res.ok) return;
+      if (res.status === 401) {
+        setAuthenticated(false);
+        setMessages([]);
+        return;
+      }
+      if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
       setAuthenticated(Boolean(data.authenticated));
       setMessages(data.messages || []);
-      if (data.apiErrors) {
-        setApiErrors(data.apiErrors);
-      }
+      if (data.apiErrors) setApiErrors(data.apiErrors);
     } catch {
-      // ignore
+      setError("Không tải được hộp thư.");
     } finally {
       setLoading(false);
       setInitialLoaded(true);
     }
-  };
+  }, [filter]);
 
   useEffect(() => {
-    fetchMessages(lovFilter);
-    const onAuthChange = () => fetchMessages(lovFilter);
+    fetchMessages();
+    const onAuthChange = () => fetchMessages();
     window.addEventListener("mt-auth-updated", onAuthChange);
     return () => window.removeEventListener("mt-auth-updated", onAuthChange);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lovFilter]);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(e.target as Node)
-      ) {
-        setLovOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [fetchMessages]);
 
   const handleMarkRead = async (msg: GmailMessageItem) => {
+    const previous = messages;
     setMessages((prev) =>
       prev.map((m) => (m.id === msg.id ? { ...m, unread: false } : m))
     );
-    await fetch("/api/gmail/recent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        accountId: msg.accountId,
-        messageId: msg.id,
-        action: "MARK_READ",
-      }),
-    });
+    let ok = false;
+    try {
+      const res = await fetch("/api/gmail/recent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId: msg.accountId,
+          messageId: msg.id,
+          action: "MARK_READ",
+        }),
+      });
+      ok = res.ok;
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      setMessages(previous);
+      toast.error("Không đánh dấu đã đọc được");
+    }
   };
 
-  const activeLabel =
-    WIDGET_LOV_OPTIONS.find((o) => o.value === lovFilter)?.label || "Tất cả";
   const enableUrl = apiErrors[0] ? extractEnableApiUrl(apiErrors[0]) : null;
+  const unreadCount = messages.filter((m) => m.unread).length;
 
   return (
-    <section className="group overflow-hidden rounded-2xl border bg-card transition-colors duration-200 hover:border-rose-500/40">
-      {/* Compact Header Bar */}
-      <div className="flex items-center justify-between gap-2 border-b px-4 py-3.5">
-        <Link
-          href="/mail"
-          className="flex shrink-0 items-center gap-2.5 text-base font-bold hover:text-primary transition-colors"
-        >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400">
-            <Mail className="h-[18px] w-[18px] icon-anim-slide" />
+    <Card>
+      <CardHeader
+        icon={<Mail />}
+        title={
+          <span className="inline-flex items-center gap-2">
+            Hộp thư
+            {authenticated && unreadCount > 0 && filter !== "UNREAD" && (
+              <span className="rounded-full bg-primary px-1.5 font-mono text-xs font-semibold text-primary-foreground">
+                {unreadCount}
+              </span>
+            )}
           </span>
-          <span className="font-display whitespace-nowrap">Hộp thư</span>
-        </Link>
-
-        {authenticated && (
-          <div className="flex shrink-0 items-center gap-1.5">
-            {/* Custom Clean LOV Dropdown */}
-            <div ref={dropdownRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setLovOpen((prev) => !prev)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg border bg-muted/40 px-2.5 text-xs font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-muted"
+        }
+        action={
+          authenticated && (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={fetchMessages}
+                aria-label="Làm mới"
+                title="Làm mới"
               >
-                <span>{activeLabel}</span>
-                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-              </button>
-
-              {lovOpen && (
-                <div className="absolute right-0 top-9 z-20 w-32 rounded-xl border bg-card p-1 shadow-lg">
-                  {WIDGET_LOV_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => {
-                        setLovFilter(opt.value);
-                        setLovOpen(false);
-                      }}
-                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold transition-colors ${
-                        lovFilter === opt.value
-                          ? "bg-primary/10 text-primary"
-                          : "text-foreground hover:bg-muted"
-                      }`}
-                    >
-                      <span>{opt.label}</span>
-                      {lovFilter === opt.value && (
-                        <Check className="h-3.5 w-3.5 text-primary" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
+                <RefreshCw
+                  className={cn("h-4 w-4", loading && "animate-spin")}
+                />
+              </Button>
+              <Link
+                href="/mail"
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[13px] font-medium text-primary transition-colors hover:bg-primary/10"
+              >
+                Mở hộp thư
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
             </div>
+          )
+        }
+      />
 
+      {/* Lọc nhanh: thay cho danh sách thả xuống */}
+      {authenticated && (
+        <div
+          role="radiogroup"
+          aria-label="Lọc thư"
+          className="flex items-center gap-1 border-b px-4 py-2"
+        >
+          {FILTERS.map((f) => (
             <button
+              key={f.value}
               type="button"
-              onClick={() => fetchMessages(lovFilter)}
-              title="Làm mới"
-              className="group/btn flex h-8 w-8 items-center justify-center rounded-lg border bg-card text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+              role="radio"
+              aria-checked={filter === f.value}
+              onClick={() => setFilter(f.value)}
+              className={cn(
+                "rounded-lg px-2.5 py-1 text-[13px] font-medium transition-colors",
+                filter === f.value
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
             >
-              <RefreshCw
-                className={`h-3.5 w-3.5 transition-transform duration-500 group-hover/btn:rotate-180 ${
-                  loading ? "animate-spin" : ""
-                }`}
-              />
+              {f.label}
             </button>
+          ))}
+        </div>
+      )}
 
-            <Link
-              href="/mail"
-              title="Mở Hộp thư"
-              className="flex h-8 w-8 items-center justify-center rounded-lg border bg-card text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
-            >
-              <ArrowUpRight className="h-4 w-4" />
-            </Link>
-          </div>
-        )}
-      </div>
-
-      {/* Body Content */}
       {!initialLoaded ? (
-        <div className="space-y-3 p-4">
+        <div className="divide-y">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="space-y-2">
-              <Skeleton className="h-3.5 w-1/3" />
-              <Skeleton className="h-4 w-4/5" />
+            <div key={i} className="flex items-center gap-3 px-4 py-3">
+              <Skeleton className="h-9 w-9 rounded-full" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-3.5 w-1/3" />
+                <Skeleton className="h-4 w-4/5" />
+              </div>
             </div>
           ))}
         </div>
       ) : !authenticated ? (
-        <div className="flex h-52 flex-col items-center justify-center gap-3 p-6">
-          <svg width="105" height="90" viewBox="0 0 105 90" fill="none">
-            <rect
-              x="18"
-              y="28"
-              width="58"
-              height="42"
-              rx="10"
-              className="fill-card stroke-rose-500"
-              strokeWidth="2.2"
-            />
-            <path
-              d="M20 32L47 51L74 32"
-              stroke="#F43F5E"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <g className="transition-transform duration-500 group-hover:translate-x-2 group-hover:-translate-y-2">
-              <path d="M62 22L92 12L80 42L73 29L62 22Z" fill="#FB7185" />
-              <path
-                d="M92 12L73 29"
-                stroke="white"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-              />
-            </g>
-          </svg>
-          <span className="text-sm font-medium text-muted-foreground">
-            Chưa kết nối Gmail
-          </span>
-        </div>
+        <ConnectPrompt
+          className="rounded-none border-0 py-10"
+          title="Chưa kết nối Gmail"
+          description="Đăng nhập Google để xem thư mới ngay tại đây."
+          actionLabel="Đăng nhập Google"
+          onConnect={() => {
+            window.location.href = "/api/auth/google?mode=login";
+          }}
+        />
+      ) : error ? (
+        <ErrorState
+          className="rounded-none border-0 py-10"
+          title="Không tải được hộp thư"
+          message={error}
+          onRetry={fetchMessages}
+        />
       ) : apiErrors.length > 0 && messages.length === 0 ? (
-        <div className="flex h-52 flex-col items-center justify-center gap-3 p-5 text-center">
-          <AlertCircle className="h-6 w-6 text-amber-500" />
-          <p className="text-sm font-semibold text-foreground">
+        <div className="flex flex-col items-center justify-center gap-3 px-5 py-10 text-center">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning/10 text-warning-fg">
+            <AlertCircle className="h-5 w-5" />
+          </span>
+          <p className="font-display text-sm font-semibold text-foreground">
             Chưa bật Gmail API trên Google Cloud
           </p>
           {enableUrl && (
@@ -261,85 +228,112 @@ export function GmailInboxWidget() {
               href={enableUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-[13px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
             >
-              <span>Bật Gmail API ngay</span>
+              Bật Gmail API ngay
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
           )}
         </div>
       ) : messages.length === 0 ? (
-        <div className="flex h-52 items-center justify-center p-6 text-sm font-medium text-muted-foreground">
-          {loading ? "Đang tải..." : "Không có email"}
-        </div>
+        <EmptyState
+          className="rounded-none border-0 py-10"
+          icon={<Mail />}
+          title={
+            filter === "UNREAD"
+              ? "Không có thư chưa đọc"
+              : filter === "STARRED"
+              ? "Chưa có thư gắn sao"
+              : "Không có email"
+          }
+        />
       ) : (
-        <div className="divide-y max-h-80 overflow-y-auto">
+        <ul
+          className={cn(
+            "mt-stagger max-h-96 divide-y overflow-y-auto transition-opacity",
+            loading && "opacity-60"
+          )}
+        >
           {messages.map((msg) => (
-            <div
+            <li
               key={msg.id}
-              className="group/row flex items-start justify-between gap-3 px-4 py-3 transition-colors hover:bg-muted/50"
+              className="group/row relative flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50"
             >
               <Link
                 href={`/mail?id=${encodeURIComponent(
                   msg.id
                 )}&accountId=${encodeURIComponent(msg.accountId)}`}
-                className="min-w-0 flex-1 space-y-1"
+                className="flex min-w-0 flex-1 items-center gap-3"
               >
-                <div className="flex items-center gap-2">
+                {/* Avatar người gửi, chấm chưa đọc ở góc */}
+                <span className="relative shrink-0">
+                  <SenderAvatar
+                    name={msg.fromName}
+                    email={msg.fromEmail}
+                    className="h-9 w-9 text-sm"
+                  />
                   {msg.unread && (
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
+                    <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-primary" />
                   )}
+                </span>
+
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span
+                      className={cn(
+                        "truncate text-[13px]",
+                        msg.unread
+                          ? "font-semibold text-foreground"
+                          : "font-medium text-muted-foreground"
+                      )}
+                    >
+                      {msg.fromName}
+                    </span>
+                    <span className="shrink-0 font-mono text-xs text-muted-foreground transition-opacity group-hover/row:opacity-0">
+                      {formatMailDate(msg.date)}
+                    </span>
+                  </span>
                   <span
-                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                      msg.accountType === "HCMUT"
-                        ? "bg-blue-500/15 text-blue-600 dark:text-blue-400"
-                        : "bg-teal-500/15 text-teal-600 dark:text-teal-400"
-                    }`}
+                    className={cn(
+                      "mt-0.5 block truncate text-sm",
+                      msg.unread
+                        ? "font-semibold text-foreground"
+                        : "text-foreground/80"
+                    )}
                   >
-                    {msg.accountType === "HCMUT" ? "HCMUT" : "Cá nhân"}
+                    {msg.subject}
                   </span>
-                  <span className="truncate text-xs font-semibold text-muted-foreground">
-                    {msg.fromName}
-                  </span>
-                </div>
-                <p
-                  className={`truncate text-sm ${
-                    msg.unread
-                      ? "font-bold text-foreground"
-                      : "font-medium text-muted-foreground"
-                  }`}
-                >
-                  {msg.subject}
-                </p>
+                </span>
               </Link>
 
-              <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover/row:opacity-100">
+              {/* Thao tác nhanh: hiện khi rê chuột hoặc focus bàn phím, thế chỗ giờ nhận */}
+              <div className="absolute right-3 top-2.5 flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/row:opacity-100">
                 {msg.unread && (
                   <button
                     type="button"
                     onClick={() => handleMarkRead(msg)}
-                    title="Đã đọc"
-                    className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:text-primary"
+                    title="Đánh dấu đã đọc"
+                    aria-label="Đánh dấu đã đọc"
+                    className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground transition-colors hover:text-primary"
                   >
                     <Check className="h-3.5 w-3.5" />
                   </button>
                 )}
                 <a
-                  href={`https://mail.google.com/mail/u/${encodeURIComponent(
-                    msg.accountEmail
-                  )}/#inbox/${msg.threadId}`}
+                  href={gmailThreadUrl(msg.accountEmail, msg.threadId)}
                   target="_blank"
                   rel="noreferrer"
                   title="Mở Gmail"
-                  className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground hover:text-foreground"
+                  aria-label="Mở Gmail"
+                  className="flex h-7 w-7 items-center justify-center rounded-md border bg-card text-muted-foreground transition-colors hover:text-foreground"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
               </div>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
-    </section>
+    </Card>
   );
 }

@@ -7,14 +7,24 @@ const MYBK_CAS_SERVICE = "https://mybk.hcmut.edu.vn/app/login/cas";
 const MYBK_SSO_LOGIN_URL = `https://sso.hcmut.edu.vn/cas/login?service=${encodeURIComponent(
   MYBK_CAS_SERVICE
 )}`;
-const MYBK_TRANSCRIPT_API =
-  "https://mybk.hcmut.edu.vn/api/share/ket-qua-hoc-tap/danh-sach-diem-hoc-ky-mon-hoc/v2";
-const MYBK_OTHER_COURSES_API =
-  "https://mybk.hcmut.edu.vn/api/share/ket-qua-hoc-tap/danh-sach-diem-mon-hoc-khac/v2";
-const MYBK_COMPONENT_SCORES_API =
-  "https://mybk.hcmut.edu.vn/api/share/ket-qua-hoc-tap/thong-tin-tinh-trang-diem-thanh-phan-mon-hoc/v2";
+
+// New Official v1 Student Academic Results APIs
+const MYBK_V1_STUDENT_INFO_API =
+  "https://mybk.hcmut.edu.vn/api/v1/student/get-student-info?null";
+const MYBK_V1_SEMESTER_GRADE_API =
+  "https://mybk.hcmut.edu.vn/api/v1/student/semester-year-grade";
+const MYBK_V1_SUBJECT_GRADE_API =
+  "https://mybk.hcmut.edu.vn/api/v1/student/subject-grade";
+const MYBK_V1_SUBJECT_GRADE_DETAIL_API =
+  "https://mybk.hcmut.edu.vn/api/v1/student/subject-grade/detail";
+const MYBK_V1_SEMESTER_SHORT_API =
+  "https://mybk.hcmut.edu.vn/api/v1/semester-year/short?null";
+
+// Supplemental APIs for Class Name (MT23KHM5) and Certificates (GDTC, CNTTCB, CTXH)
 const MYBK_STUDENT_OVERVIEW_API =
   "https://mybk.hcmut.edu.vn/api/share/ket-qua-hoc-tap/thong-tin-mo-ta-bang-diem/v2?tuychon=VIEWONLINE";
+const MYBK_OTHER_COURSES_API =
+  "https://mybk.hcmut.edu.vn/api/share/ket-qua-hoc-tap/danh-sach-diem-mon-hoc-khac/v2";
 
 const LOCAL_CACHE_PATH = path.join(
   process.cwd(),
@@ -45,9 +55,12 @@ export interface RawMyBkComponentScore {
 
 export interface ComponentScoreItem {
   key: string;
+  codeEn?: string;
   label: string;
   weight: number;
   score: number | null;
+  rawGrade?: string | null;
+  lastUpdatedAt?: string | null;
 }
 
 export interface MyBkStudentOverview {
@@ -63,9 +76,12 @@ export interface RawMyBkSemester {
   maNamHocHocKy: string;
   namHocHocKyTen: string;
   soTCTLHocKy: number;
-  diemTBTLHocKy: string;
-  soTCTLChung: string;
-  diemTBTLChung: string;
+  diemTBTLHocKy: string;       // GPA Hệ 4.0 học kỳ (fourPointScale)
+  diemTBHocKyHe10?: string | null;   // GPA Hệ 10 học kỳ (grade)
+  diemChuHocKy?: string | null;      // Điểm chữ học kỳ (letterGrade)
+  soTCTLChung: string;         // Tín chỉ tích lũy chung
+  diemTBTLChung: string;       // CPA Hệ 4.0 chung
+  diemTBTLChungHe10?: string | null; // CPA Hệ 10 chung (tenPointScaleCommonCumulativeGPA)
   capNhatCuoi: string | null;
 }
 
@@ -76,14 +92,18 @@ export interface RawMyBkCourse {
   monHocId: number;
   maMonHoc: string;
   tenMonHoc: string;
+  tenMonHocEn?: string | null;
   soTinChi: number;
+  soTinChiHocPhan?: number | null;
   diemChu: string | null;
   diemSo: number | null;
   diemDat: string | null;
   tinhTrangDiem: string | null;
   diemKhongIn: string | null;
   nhomTo: string | null;
+  nhomThucHanh?: string | null;
   ghiChu: string | null;
+  ngayCongBoDiem?: string | null;
   componentScores?: ComponentScoreItem[];
   isNewUpdate?: boolean;
 }
@@ -122,35 +142,196 @@ export interface MyBkTranscriptPayload {
   recentChanges?: SyncChangeNotification[];
 }
 
+// Raw interfaces for v1 endpoints
+interface V1SemesterGradeItem {
+  id: string;
+  semesterYear: {
+    id: number;
+    isCurrent: boolean;
+    code: number;
+    nameVi: string;
+    nameEn: string;
+  };
+  student: {
+    id: number;
+    code: string;
+    firstName: string;
+    lastName: string;
+  };
+  numOfCredits: number;
+  grade: number | null;
+  letterGrade: string | null;
+  fourPointScale: number | null;
+  fourPointScaleCumulativeGPA: number | null;
+  tenPointScaleCumulativeGPA: number | null;
+  fourPointScaleCommonCumulativeGPA: number | null;
+  tenPointScaleCommonCumulativeGPA: number | null;
+  cumulativeCourseCredits: number | null;
+  commonCumulativeCredits: number | null;
+  note: string | null;
+  lastUpdatedAt: string | null;
+}
+
+interface V1SubjectGradeItem {
+  id: string;
+  semesterYear: {
+    id: number;
+    isCurrent: boolean;
+    code: number;
+    nameVi: string;
+    nameEn: string;
+  };
+  subject: {
+    id: number;
+    code: string;
+    nameVi: string;
+    nameEn: string | null;
+    numOfCredits: number;
+    numOfCourseCredits: number | null;
+  };
+  student: {
+    id: number;
+    code: string;
+    firstName: string;
+    lastName: string;
+  };
+  grade: string | null;
+  letterGrade: string | null;
+  passingGrade: number | null;
+  note: string | null;
+  createdAt: string | null;
+}
+
+interface V1SubjectGradeDetailItem {
+  id: number;
+  subject: {
+    id: number;
+    code: string;
+    nameVi: string;
+    nameEn: string | null;
+    numOfCredits: number;
+    numOfCourseCredits: number | null;
+  };
+  semesterYear: {
+    id: number;
+    isCurrent: boolean;
+    code: number;
+    nameVi: string;
+    nameEn: string;
+  };
+  studentSubjectGradeDetails: Array<{
+    id: number;
+    grade: string | null;
+    percentage: number;
+    gradeColumnDictionary: {
+      id: number;
+      code: string;
+      nameVi: string;
+      nameEn: string;
+    };
+    isInvalid: boolean;
+    lastUpdatedAt: string | null;
+  }>;
+  subjectClassGroup?: {
+    id: number;
+    subjectClassGroupCode: string;
+    classGroup: string | null;
+    subjectGroup: string | null;
+  } | null;
+  note: string | null;
+  invalidFlag: number;
+  lastUpdatedAt: string | null;
+}
+
 const COMPONENT_FULL_NAMES: Record<string, string> = {
-  kiemTra: "Kiểm tra giữa kỳ (K.Tra)",
-  baiTapThucHanh: "Bài tập / Thực hành (B.Tập)",
-  thiNghiem: "Thí nghiệm (TNg)",
-  baiTapLon_TieuLuan: "Bài tập lớn / Đồ án (BTL/ĐA)",
-  thi: "Thi cuối kỳ (Thi)",
+  kiemTra: "Kiểm tra giữa kỳ (KTR)",
+  baiTapThucHanh: "Bài tập / Thực hành (BTP)",
+  thiNghiem: "Thí nghiệm (TNG)",
+  baiTapLon_TieuLuan: "Bài tập lớn / Đồ án (BTL)",
+  thi: "Thi cuối kỳ (THI)",
 };
 
-export function parseDiemThanhPhanJson(
-  rawJson: string | null | undefined
-): ComponentScoreItem[] {
-  if (!rawJson) return [];
-  try {
-    const arr: RawMyBkComponentScore[] = JSON.parse(rawJson);
-    if (!Array.isArray(arr)) return [];
-    return arr
-      .filter((item) => item.ma !== "tket" && item.ma !== "tkethp")
-      .map((item) => ({
-        key: item.ma,
-        label: COMPONENT_FULL_NAMES[item.ma] || item.ten || item.ma,
-        weight: Number(item.tyle || 0),
-        score:
-          item.diem !== null && item.diem !== undefined
-            ? Number(item.diem)
-            : null,
-      }));
-  } catch {
-    return [];
+function formatIsoToViDateTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  if (iso.includes("/")) return iso;
+  const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (match) {
+    return `${match[3]}/${match[2]}/${match[1]} ${match[4]}:${match[5]}`;
   }
+  return iso;
+}
+
+function normalizeSemesterCode(code: number | string): string {
+  const s = String(code).trim();
+  if (s === "99991" || s.toUpperCase() === "BL") return "BL";
+  return s;
+}
+
+function parseV1SubjectGradeTokens(
+  rawGrade: string | null | undefined,
+  rawLetter: string | null | undefined
+): { diemSo: number | null; diemChu: string | null } {
+  const g = (rawGrade || "").trim().toUpperCase();
+  const l = (rawLetter || "").trim().toUpperCase();
+
+  if (g === "MT" || l === "MT") {
+    return { diemSo: 12, diemChu: "MT" };
+  }
+  if (g === "DT" || l === "DT") {
+    return { diemSo: 21, diemChu: "DT" };
+  }
+  if (g === "RT" || l === "RT" || g === "VT") {
+    return { diemSo: 17, diemChu: "RT" };
+  }
+
+  const parsedNum = g !== "" && g !== "--" ? Number(g) : NaN;
+  const diemSo = !Number.isNaN(parsedNum) ? parsedNum : null;
+  const diemChu = l && l !== "--" ? l : null;
+  return { diemSo, diemChu };
+}
+
+export function parseV1GradeDetailsList(
+  details: V1SubjectGradeDetailItem["studentSubjectGradeDetails"] | undefined
+): {
+  components: ComponentScoreItem[];
+  tketScore: number | null;
+} {
+  if (!Array.isArray(details)) return { components: [], tketScore: null };
+
+  let tketScore: number | null = null;
+  const components: ComponentScoreItem[] = [];
+
+  for (const d of details) {
+    const code = d.gradeColumnDictionary?.code || "";
+    const rawStr = d.grade !== null && d.grade !== undefined ? String(d.grade).trim() : "";
+    const numVal = rawStr !== "" && rawStr !== "--" ? Number(rawStr) : NaN;
+    const numericScore = !Number.isNaN(numVal) ? numVal : null;
+
+    if (code === "tket" || code === "tkethp") {
+      if (numericScore !== null && tketScore === null) {
+        tketScore = numericScore;
+      }
+      continue;
+    }
+
+    const codeEn = d.gradeColumnDictionary?.nameEn || "";
+    const nameVi = d.gradeColumnDictionary?.nameVi || code;
+    const label =
+      COMPONENT_FULL_NAMES[code] ||
+      (codeEn ? `${nameVi} (${codeEn})` : nameVi);
+
+    components.push({
+      key: code,
+      codeEn: codeEn || undefined,
+      label,
+      weight: Number(d.percentage || 0),
+      score: numericScore,
+      rawGrade: rawStr || null,
+      lastUpdatedAt: formatIsoToViDateTime(d.lastUpdatedAt),
+    });
+  }
+
+  return { components, tketScore };
 }
 
 function getEncryptionKey(): Buffer {
@@ -367,10 +548,7 @@ export async function loginMyBkCasSso(
 }
 
 /**
- * Auto-SSO Token Manager:
- * Returns a valid myBK JWT token. If the stored JWT is expired (or within 5 minutes of expiry)
- * and encrypted SSO credentials exist, it automatically logs into CAS SSO in the background
- * and updates PostgreSQL with the fresh token.
+ * Auto-SSO Token Manager
  */
 export async function ensureValidMyBkJwt(account: {
   studentId: string;
@@ -389,7 +567,6 @@ export async function ensureValidMyBkJwt(account: {
     return { jwtToken: account.jwtToken, refreshed: false };
   }
 
-  // Token expired or about to expire -> Auto-refresh via stored SSO credentials!
   if (account.ssoUsername && account.encryptedPassword) {
     const plainPassword = decryptCredential(account.encryptedPassword);
     if (plainPassword) {
@@ -413,6 +590,58 @@ export async function ensureValidMyBkJwt(account: {
   return { jwtToken: account.jwtToken, refreshed: false };
 }
 
+/**
+ * Resolves internal numeric sinhVienId (e.g. 211441) from DB, cache, or v1/student/get-student-info
+ */
+async function resolveNumericSinhVienId(
+  cleanToken: string,
+  studentId: string
+): Promise<number> {
+  try {
+    const acc = await prisma.myBkAccount.findUnique({ where: { studentId } });
+    if (acc?.sinhVienId) return acc.sinhVienId;
+  } catch {
+    // ignore
+  }
+
+  const cached = await readLocalCache();
+  if (cached?.semesters?.[0]?.sinhVienId) {
+    return cached.semesters[0].sinhVienId;
+  }
+
+  try {
+    const res = await fetch(MYBK_V1_STUDENT_INFO_API, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        "accept-language": "vi",
+        authorization: cleanToken,
+        "content-type": "application/json",
+        traceparent: generateTraceparent(),
+        Referer:
+          "https://mybk.hcmut.edu.vn/app/he-thong-quan-ly/sinh-vien/ket-qua-hoc-tap",
+      },
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const json = await res.json();
+      const id = Number(json?.data?.id || json?.data?.sinhVienId);
+      if (id > 0) return id;
+    }
+  } catch {
+    // ignore
+  }
+
+  return 211441;
+}
+
+/**
+ * Fetches full academic transcript using the official v1 APIs:
+ * 1. GET /api/v1/student/semester-year-grade?studentId=211441&semesterYear=-1&null
+ * 2. GET /api/v1/student/subject-grade?studentId=211441&semesterYear=-1&null
+ * 3. GET /api/v1/student/subject-grade/detail?studentId=211441&semesterYear=<code>&null
+ * Plus VIEWONLINE student overview (for class code MT23KHM5) & otherCourses (certificates).
+ */
 export async function fetchMyBkAcademicTranscript(
   jwtToken: string,
   studentId: string
@@ -423,7 +652,19 @@ export async function fetchMyBkAcademicTranscript(
   otherCourses: RawMyBkOtherCourse[];
 }> {
   const cleanToken = jwtToken.replace(/^Bearer\s+/i, "").trim();
-  const makeHeaders = () => ({
+  const sinhVienId = await resolveNumericSinhVienId(cleanToken, studentId);
+
+  const makeV1Headers = () => ({
+    accept: "application/json",
+    "accept-language": "vi",
+    authorization: cleanToken,
+    "content-type": "application/json",
+    traceparent: generateTraceparent(),
+    Referer:
+      "https://mybk.hcmut.edu.vn/app/he-thong-quan-ly/sinh-vien/ket-qua-hoc-tap",
+  });
+
+  const makeShareHeaders = () => ({
     accept: "application/json",
     "accept-language": "vi",
     authorization: cleanToken,
@@ -433,43 +674,56 @@ export async function fetchMyBkAcademicTranscript(
       "https://mybk.hcmut.edu.vn/app/sinh-vien/ket-qua-hoc-tap/bang-diem-mon-hoc",
   });
 
-  const [infoRes, semRes, courseRes, otherRes] = await Promise.all([
+  const [semRes, subjRes, semShortRes, infoRes, otherRes] = await Promise.all([
+    fetch(
+      `${MYBK_V1_SEMESTER_GRADE_API}?studentId=${sinhVienId}&semesterYear=-1&null`,
+      {
+        method: "GET",
+        headers: makeV1Headers(),
+        cache: "no-store",
+      }
+    ),
+    fetch(
+      `${MYBK_V1_SUBJECT_GRADE_API}?studentId=${sinhVienId}&semesterYear=-1&null`,
+      {
+        method: "GET",
+        headers: makeV1Headers(),
+        cache: "no-store",
+      }
+    ),
+    fetch(MYBK_V1_SEMESTER_SHORT_API, {
+      method: "GET",
+      headers: makeV1Headers(),
+      cache: "no-store",
+    }).catch(() => null),
     fetch(MYBK_STUDENT_OVERVIEW_API, {
       method: "POST",
-      headers: makeHeaders(),
+      headers: makeShareHeaders(),
       body: JSON.stringify(studentId),
       cache: "no-store",
     }).catch(() => null),
-    fetch(`${MYBK_TRANSCRIPT_API}?tuychon=BANGDIEM_HOCKY`, {
-      method: "POST",
-      headers: makeHeaders(),
-      body: JSON.stringify(studentId),
-      cache: "no-store",
-    }),
-    fetch(`${MYBK_TRANSCRIPT_API}?tuychon=BANGDIEM_MONHOC`, {
-      method: "POST",
-      headers: makeHeaders(),
-      body: JSON.stringify(studentId),
-      cache: "no-store",
-    }),
     fetch(`${MYBK_OTHER_COURSES_API}?tuychon=BANGDIEM_MONHOC`, {
       method: "POST",
-      headers: makeHeaders(),
+      headers: makeShareHeaders(),
       body: JSON.stringify(studentId),
       cache: "no-store",
     }).catch(() => null),
   ]);
 
-  if (!semRes.ok || !courseRes.ok) {
+  if (!semRes.ok || !subjRes.ok) {
     throw new Error(
-      `TOKEN_EXPIRED_OR_REJECTED:${semRes.status}/${courseRes.status}`
+      `TOKEN_EXPIRED_OR_REJECTED:${semRes.status}/${subjRes.status}`
     );
   }
 
+  const semJson = await semRes.json();
+  const subjJson = await subjRes.json();
+  const semShortJson =
+    semShortRes && semShortRes.ok
+      ? await semShortRes.json().catch(() => null)
+      : null;
   const infoJson =
     infoRes && infoRes.ok ? await infoRes.json().catch(() => null) : null;
-  const semJson = await semRes.json();
-  const courseJson = await courseRes.json();
   const otherJson =
     otherRes && otherRes.ok ? await otherRes.json().catch(() => null) : null;
 
@@ -481,69 +735,251 @@ export async function fetchMyBkAcademicTranscript(
     throw new Error("TOKEN_EXPIRED_EMPTY_DATA");
   }
 
+  const rawV1Semesters: V1SemesterGradeItem[] = semJson.data;
+  const rawV1Subjects: V1SubjectGradeItem[] = Array.isArray(subjJson.data)
+    ? subjJson.data
+    : [];
+
+  // Determine current semester code (e.g. 20261) so we also fetch in-progress component scores
+  const currentSemObj = Array.isArray(semShortJson?.data)
+    ? semShortJson.data.find((s: { isCurrent?: boolean; code?: number }) => s.isCurrent)
+    : null;
+
+  // Map v1 Semester Grades
+  const semestersMap = new Map<string, RawMyBkSemester>();
+  for (const s of rawV1Semesters) {
+    const rawCode = s.semesterYear?.code ?? 0;
+    const maNamHocHocKy = normalizeSemesterCode(rawCode);
+    const isTransfer = maNamHocHocKy === "BL";
+
+    semestersMap.set(maNamHocHocKy, {
+      sinhVienId: Number(s.student?.id || sinhVienId),
+      namHocHocKyId: Number(s.semesterYear?.id || 0),
+      maNamHocHocKy,
+      namHocHocKyTen: String(s.semesterYear?.nameVi || `Học kỳ ${maNamHocHocKy}`),
+      soTCTLHocKy: Number(s.numOfCredits ?? 0),
+      diemTBTLHocKy:
+        isTransfer || s.fourPointScale === null || s.fourPointScale === undefined
+          ? "0.0"
+          : Number(s.fourPointScale).toFixed(1),
+      diemTBHocKyHe10:
+        isTransfer || s.grade === null || s.grade === undefined
+          ? null
+          : Number(s.grade).toFixed(1),
+      diemChuHocKy:
+        isTransfer || !s.letterGrade || s.letterGrade === "--"
+          ? null
+          : String(s.letterGrade),
+      soTCTLChung: String(
+        s.commonCumulativeCredits ?? s.cumulativeCourseCredits ?? 0
+      ),
+      diemTBTLChung:
+        s.fourPointScaleCommonCumulativeGPA !== null &&
+        s.fourPointScaleCommonCumulativeGPA !== undefined
+          ? Number(s.fourPointScaleCommonCumulativeGPA).toFixed(1)
+          : "0.0",
+      diemTBTLChungHe10:
+        s.tenPointScaleCommonCumulativeGPA !== null &&
+        s.tenPointScaleCommonCumulativeGPA !== undefined
+          ? Number(s.tenPointScaleCommonCumulativeGPA).toFixed(2)
+          : null,
+      capNhatCuoi: formatIsoToViDateTime(s.lastUpdatedAt),
+    });
+  }
+
+  // Collect all numeric semester codes (excluding 99991) + current semester to fetch subject-grade/detail
+  const detailSemesterCodes = new Set<number>();
+  for (const s of rawV1Semesters) {
+    const codeNum = Number(s.semesterYear?.code || 0);
+    if (codeNum >= 20200 && codeNum < 90000) {
+      detailSemesterCodes.add(codeNum);
+    }
+  }
+  if (currentSemObj?.code) {
+    detailSemesterCodes.add(Number(currentSemObj.code));
+  }
+
+  const detailItemsByKey = new Map<string, V1SubjectGradeDetailItem>();
+  const allDetailRecords: V1SubjectGradeDetailItem[] = [];
+
+  // Try fetching all details or per-semester in parallel
+  const detailResults = await Promise.all(
+    Array.from(detailSemesterCodes).map(async (semCode) => {
+      try {
+        const dRes = await fetch(
+          `${MYBK_V1_SUBJECT_GRADE_DETAIL_API}?studentId=${sinhVienId}&semesterYear=${semCode}&null`,
+          {
+            method: "GET",
+            headers: makeV1Headers(),
+            cache: "no-store",
+          }
+        );
+        if (!dRes.ok) return [];
+        const dJson = await dRes.json();
+        return Array.isArray(dJson?.data)
+          ? (dJson.data as V1SubjectGradeDetailItem[])
+          : [];
+      } catch {
+        return [];
+      }
+    })
+  );
+
+  for (const list of detailResults) {
+    for (const dItem of list) {
+      if (dItem.invalidFlag === 1) continue;
+      const semCodeStr = normalizeSemesterCode(dItem.semesterYear?.code ?? "");
+      const subjCodeStr = String(dItem.subject?.code || "").toUpperCase();
+      const key = `${semCodeStr}_${subjCodeStr}`;
+      detailItemsByKey.set(key, dItem);
+      allDetailRecords.push(dItem);
+    }
+  }
+
+  // Build unified courses list from v1/student/subject-grade + enrich with v1/student/subject-grade/detail
+  const coursesByKey = new Map<string, RawMyBkCourse>();
+
+  for (const item of rawV1Subjects) {
+    const maHocKy = normalizeSemesterCode(
+      item.id?.startsWith("BL.") ? "BL" : item.semesterYear?.code ?? ""
+    );
+    const maMonHoc = String(item.subject?.code || "");
+    const key = `${maHocKy}_${maMonHoc.toUpperCase()}`;
+    const detail = detailItemsByKey.get(key);
+    const parsedDetail = parseV1GradeDetailsList(
+      detail?.studentSubjectGradeDetails
+    );
+    const { diemSo, diemChu } = parseV1SubjectGradeTokens(
+      item.grade,
+      item.letterGrade
+    );
+
+    coursesByKey.set(key, {
+      sinhVienId: Number(item.student?.id || sinhVienId),
+      namHocHocKyId: Number(item.semesterYear?.id || 0),
+      maHocKy,
+      monHocId: Number(item.subject?.id || 0),
+      maMonHoc,
+      tenMonHoc: String(item.subject?.nameVi || ""),
+      tenMonHocEn: item.subject?.nameEn || null,
+      soTinChi: Number(item.subject?.numOfCredits ?? 0),
+      soTinChiHocPhan:
+        item.subject?.numOfCourseCredits !== null &&
+        item.subject?.numOfCourseCredits !== undefined
+          ? Number(item.subject.numOfCourseCredits)
+          : null,
+      diemChu,
+      diemSo,
+      diemDat:
+        item.passingGrade !== null && item.passingGrade !== undefined
+          ? String(item.passingGrade)
+          : null,
+      tinhTrangDiem: "Chính thức",
+      diemKhongIn: "0",
+      nhomTo: detail?.subjectClassGroup?.classGroup || null,
+      nhomThucHanh: detail?.subjectClassGroup?.subjectGroup || null,
+      ghiChu: item.note || detail?.note || null,
+      ngayCongBoDiem: formatIsoToViDateTime(
+        item.createdAt || detail?.lastUpdatedAt
+      ),
+      componentScores: parsedDetail.components,
+    });
+  }
+
+  // Merge subjects that appear in v1/student/subject-grade/detail (e.g. SA0002 or in-progress current semester courses)
+  // but aren't finalized in v1/student/subject-grade yet!
+  for (const dItem of allDetailRecords) {
+    const maHocKy = normalizeSemesterCode(dItem.semesterYear?.code ?? "");
+    const maMonHoc = String(dItem.subject?.code || "");
+    const key = `${maHocKy}_${maMonHoc.toUpperCase()}`;
+    if (coursesByKey.has(key)) continue;
+
+    const parsedDetail = parseV1GradeDetailsList(
+      dItem.studentSubjectGradeDetails
+    );
+    const hasTket = parsedDetail.tketScore !== null;
+
+    // Ensure the semester exists in semestersMap (e.g. current semester 20261 with partial grades)
+    if (!semestersMap.has(maHocKy) && dItem.semesterYear) {
+      semestersMap.set(maHocKy, {
+        sinhVienId,
+        namHocHocKyId: Number(dItem.semesterYear.id),
+        maNamHocHocKy: maHocKy,
+        namHocHocKyTen: String(dItem.semesterYear.nameVi),
+        soTCTLHocKy: 0,
+        diemTBTLHocKy: "0.0",
+        diemTBHocKyHe10: null,
+        diemChuHocKy: null,
+        soTCTLChung: "0",
+        diemTBTLChung: "0.0",
+        diemTBTLChungHe10: null,
+        capNhatCuoi: formatIsoToViDateTime(dItem.lastUpdatedAt),
+      });
+    }
+
+    coursesByKey.set(key, {
+      sinhVienId,
+      namHocHocKyId: Number(dItem.semesterYear?.id || 0),
+      maHocKy,
+      monHocId: Number(dItem.subject?.id || 0),
+      maMonHoc,
+      tenMonHoc: String(dItem.subject?.nameVi || ""),
+      tenMonHocEn: dItem.subject?.nameEn || null,
+      soTinChi: Number(dItem.subject?.numOfCredits ?? 0),
+      soTinChiHocPhan:
+        dItem.subject?.numOfCourseCredits !== null &&
+        dItem.subject?.numOfCourseCredits !== undefined
+          ? Number(dItem.subject.numOfCourseCredits)
+          : null,
+      diemChu:
+        hasTket && Number(dItem.subject?.numOfCredits ?? 0) === 0 ? "DT" : null,
+      diemSo: parsedDetail.tketScore,
+      diemDat: hasTket ? "1" : null,
+      tinhTrangDiem: hasTket ? "Chính thức" : "Đang cập nhật",
+      diemKhongIn: "0",
+      nhomTo: dItem.subjectClassGroup?.classGroup || null,
+      nhomThucHanh: dItem.subjectClassGroup?.subjectGroup || null,
+      ghiChu: dItem.note || null,
+      ngayCongBoDiem: formatIsoToViDateTime(dItem.lastUpdatedAt),
+      componentScores: parsedDetail.components,
+    });
+  }
+
+  // Sort semesters descending (20261 -> 20253 -> 20252 ... -> BL at end)
+  const semesters = Array.from(semestersMap.values()).sort((a, b) => {
+    if (a.maNamHocHocKy === "BL") return 1;
+    if (b.maNamHocHocKy === "BL") return -1;
+    return b.maNamHocHocKy.localeCompare(a.maNamHocHocKy);
+  });
+
+  const courses = Array.from(coursesByKey.values());
+
+  const firstStudent = rawV1Semesters[0]?.student || rawV1Subjects[0]?.student;
+  const fullNameFromV1 = firstStudent
+    ? `${firstStudent.lastName || ""} ${firstStudent.firstName || ""}`.trim()
+    : "";
+
   const studentInfo: MyBkStudentOverview | null = infoJson?.data
     ? {
         masv: String(infoJson.data.masv || studentId),
         malop: String(infoJson.data.malop || ""),
-        hovaten: String(infoJson.data.hovaten || ""),
-        namHocHocKyTen: String(infoJson.data.namHocHocKyTen || ""),
+        hovaten: String(infoJson.data.hovaten || fullNameFromV1),
+        namHocHocKyTen: String(
+          infoJson.data.namHocHocKyTen || currentSemObj?.nameVi || ""
+        ),
+      }
+    : fullNameFromV1
+    ? {
+        masv: String(firstStudent?.code || studentId),
+        malop: "",
+        hovaten: fullNameFromV1,
+        namHocHocKyTen: String(currentSemObj?.nameVi || ""),
       }
     : null;
 
-  const semesters: RawMyBkSemester[] = semJson.data;
-  const rawCourses: RawMyBkCourse[] = Array.isArray(courseJson.data)
-    ? courseJson.data
-    : [];
   const otherCourses: RawMyBkOtherCourse[] = Array.isArray(otherJson?.data)
     ? otherJson.data
     : [];
-
-  const sinhVienId =
-    semesters[0]?.sinhVienId ?? rawCourses[0]?.sinhVienId ?? null;
-
-  const compMap = new Map<
-    string,
-    { tenTinhTrang?: string; components: ComponentScoreItem[] }
-  >();
-
-  if (sinhVienId) {
-    try {
-      const compRes = await fetch(MYBK_COMPONENT_SCORES_API, {
-        method: "POST",
-        headers: makeHeaders(),
-        body: String(sinhVienId),
-        cache: "no-store",
-      });
-      if (compRes.ok) {
-        const compJson = await compRes.json();
-        const compList: Array<{
-          namHocHocKyId: number;
-          monHocId: number;
-          tenTinhTrang?: string;
-          diemThanhPhanJson?: string;
-        }> = Array.isArray(compJson.data) ? compJson.data : [];
-
-        for (const item of compList) {
-          const key = `${item.namHocHocKyId}_${item.monHocId}`;
-          compMap.set(key, {
-            tenTinhTrang: item.tenTinhTrang,
-            components: parseDiemThanhPhanJson(item.diemThanhPhanJson),
-          });
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  const courses: RawMyBkCourse[] = rawCourses.map((c) => {
-    const found = compMap.get(`${c.namHocHocKyId}_${c.monHocId}`);
-    return {
-      ...c,
-      tinhTrangDiem: found?.tenTinhTrang || c.tinhTrangDiem || null,
-      componentScores: found?.components || [],
-    };
-  });
 
   return { studentInfo, semesters, courses, otherCourses };
 }
@@ -582,9 +1018,7 @@ export async function clearLocalCache() {
 }
 
 /**
- * Diff Engine + Smart PostgreSQL Upsert:
- * Compares incoming myBK data against existing PostgreSQL rows, detects newly updated grades/components,
- * logs notifications, and performs true composite-key UPSERT into PostgreSQL.
+ * Diff Engine + Smart PostgreSQL Upsert
  */
 export async function saveAndSyncMyBkTranscript(options: {
   studentId: string;
@@ -602,8 +1036,13 @@ export async function saveAndSyncMyBkTranscript(options: {
   const nowIso = new Date().toISOString();
   const decoded = decodeMyBkJwt(jwtToken);
   const sinhVienId =
-    semesters[0]?.sinhVienId ?? courses[0]?.sinhVienId ?? undefined;
-  const resolvedStudentInfo = studentInfo || existingCache?.studentInfo || null;
+    semesters[0]?.sinhVienId ?? courses[0]?.sinhVienId ?? 211441;
+  const resolvedStudentInfo: MyBkStudentOverview | null = studentInfo
+    ? {
+        ...studentInfo,
+        malop: studentInfo.malop || existingCache?.studentInfo?.malop || "",
+      }
+    : existingCache?.studentInfo || null;
   const resolvedSsoUsername =
     ssoUsername || existingCache?.ssoUsername || null;
 
@@ -654,7 +1093,7 @@ export async function saveAndSyncMyBkTranscript(options: {
       ])
     );
 
-    // 3. Upsert each AcademicSemester by composite key [studentId, maNamHocHocKy]
+    // 3. Upsert each AcademicSemester
     await Promise.all(
       semesters.map((s, idx) =>
         prisma.academicSemester.upsert({
@@ -669,8 +1108,11 @@ export async function saveAndSyncMyBkTranscript(options: {
             namHocHocKyTen: String(s.namHocHocKyTen),
             soTCTLHocKy: Number(s.soTCTLHocKy || 0),
             diemTBTLHocKy: String(s.diemTBTLHocKy ?? "0.0"),
+            diemTBHocKyHe10: s.diemTBHocKyHe10 ?? null,
+            diemChuHocKy: s.diemChuHocKy ?? null,
             soTCTLChung: String(s.soTCTLChung ?? "0"),
             diemTBTLChung: String(s.diemTBTLChung ?? "0.0"),
+            diemTBTLChungHe10: s.diemTBTLChungHe10 ?? null,
             capNhatCuoi: s.capNhatCuoi ? String(s.capNhatCuoi) : null,
             sortOrder: idx,
           },
@@ -681,8 +1123,11 @@ export async function saveAndSyncMyBkTranscript(options: {
             namHocHocKyTen: String(s.namHocHocKyTen),
             soTCTLHocKy: Number(s.soTCTLHocKy || 0),
             diemTBTLHocKy: String(s.diemTBTLHocKy ?? "0.0"),
+            diemTBHocKyHe10: s.diemTBHocKyHe10 ?? null,
+            diemChuHocKy: s.diemChuHocKy ?? null,
             soTCTLChung: String(s.soTCTLChung ?? "0"),
             diemTBTLChung: String(s.diemTBTLChung ?? "0.0"),
+            diemTBTLChungHe10: s.diemTBTLChungHe10 ?? null,
             capNhatCuoi: s.capNhatCuoi ? String(s.capNhatCuoi) : null,
             sortOrder: idx,
           },
@@ -690,7 +1135,7 @@ export async function saveAndSyncMyBkTranscript(options: {
       )
     );
 
-    // 4. Diff & Upsert each AcademicCourseGrade by composite key [studentId, maHocKy, maMonHoc, monHocId]
+    // 4. Diff & Upsert each AcademicCourseGrade
     await Promise.all(
       courses.map(async (c) => {
         const compKey = `${c.maHocKy}_${c.maMonHoc}_${c.monHocId}`;
@@ -751,7 +1196,9 @@ export async function saveAndSyncMyBkTranscript(options: {
           update: {
             namHocHocKyId: Number(c.namHocHocKyId),
             tenMonHoc: String(c.tenMonHoc),
+            tenMonHocEn: c.tenMonHocEn ?? null,
             soTinChi: Number(c.soTinChi || 0),
+            soTinChiHocPhan: c.soTinChiHocPhan ?? null,
             diemChu: c.diemChu ? String(c.diemChu) : null,
             diemSo:
               c.diemSo !== null && c.diemSo !== undefined
@@ -761,7 +1208,9 @@ export async function saveAndSyncMyBkTranscript(options: {
             tinhTrangDiem: c.tinhTrangDiem ? String(c.tinhTrangDiem) : null,
             diemKhongIn: c.diemKhongIn ? String(c.diemKhongIn) : null,
             nhomTo: c.nhomTo ? String(c.nhomTo) : null,
+            nhomThucHanh: c.nhomThucHanh ?? null,
             ghiChu: c.ghiChu ? String(c.ghiChu) : null,
+            ngayCongBoDiem: c.ngayCongBoDiem ?? null,
             componentScoresJson: newCompJson,
             isNewUpdate,
           },
@@ -772,7 +1221,9 @@ export async function saveAndSyncMyBkTranscript(options: {
             monHocId: Number(c.monHocId),
             maMonHoc: String(c.maMonHoc),
             tenMonHoc: String(c.tenMonHoc),
+            tenMonHocEn: c.tenMonHocEn ?? null,
             soTinChi: Number(c.soTinChi || 0),
+            soTinChiHocPhan: c.soTinChiHocPhan ?? null,
             diemChu: c.diemChu ? String(c.diemChu) : null,
             diemSo:
               c.diemSo !== null && c.diemSo !== undefined
@@ -782,7 +1233,9 @@ export async function saveAndSyncMyBkTranscript(options: {
             tinhTrangDiem: c.tinhTrangDiem ? String(c.tinhTrangDiem) : null,
             diemKhongIn: c.diemKhongIn ? String(c.diemKhongIn) : null,
             nhomTo: c.nhomTo ? String(c.nhomTo) : null,
+            nhomThucHanh: c.nhomThucHanh ?? null,
             ghiChu: c.ghiChu ? String(c.ghiChu) : null,
+            ngayCongBoDiem: c.ngayCongBoDiem ?? null,
             componentScoresJson: newCompJson,
             isNewUpdate,
           },
@@ -790,39 +1243,41 @@ export async function saveAndSyncMyBkTranscript(options: {
       })
     );
 
-    // 5. Upsert each AcademicOtherGrade by composite key [studentId, maHocKy, maMonHoc]
-    await Promise.all(
-      otherCourses.map((o) =>
-        prisma.academicOtherGrade.upsert({
-          where: {
-            studentId_maHocKy_maMonHoc: {
+    // 5. Upsert each AcademicOtherGrade
+    if (otherCourses.length > 0) {
+      await Promise.all(
+        otherCourses.map((o) =>
+          prisma.academicOtherGrade.upsert({
+            where: {
+              studentId_maHocKy_maMonHoc: {
+                studentId,
+                maHocKy: String(o.maHocKy || ""),
+                maMonHoc: String(o.maMonHoc || ""),
+              },
+            },
+            update: {
+              tenMonHoc: String(o.tenMonHoc || ""),
+              diemSo: o.diemSo !== null ? String(o.diemSo) : null,
+              diemDat: o.diemdat !== null ? String(o.diemdat) : null,
+              ghiChu: o.ghiChu ? String(o.ghiChu) : null,
+              capNhatCuoi: o.capNhatCuoi ? String(o.capNhatCuoi) : null,
+            },
+            create: {
               studentId,
               maHocKy: String(o.maHocKy || ""),
               maMonHoc: String(o.maMonHoc || ""),
+              tenMonHoc: String(o.tenMonHoc || ""),
+              diemSo: o.diemSo !== null ? String(o.diemSo) : null,
+              diemDat: o.diemdat !== null ? String(o.diemdat) : null,
+              ghiChu: o.ghiChu ? String(o.ghiChu) : null,
+              capNhatCuoi: o.capNhatCuoi ? String(o.capNhatCuoi) : null,
             },
-          },
-          update: {
-            tenMonHoc: String(o.tenMonHoc || ""),
-            diemSo: o.diemSo !== null ? String(o.diemSo) : null,
-            diemDat: o.diemdat !== null ? String(o.diemdat) : null,
-            ghiChu: o.ghiChu ? String(o.ghiChu) : null,
-            capNhatCuoi: o.capNhatCuoi ? String(o.capNhatCuoi) : null,
-          },
-          create: {
-            studentId,
-            maHocKy: String(o.maHocKy || ""),
-            maMonHoc: String(o.maMonHoc || ""),
-            tenMonHoc: String(o.tenMonHoc || ""),
-            diemSo: o.diemSo !== null ? String(o.diemSo) : null,
-            diemDat: o.diemdat !== null ? String(o.diemdat) : null,
-            ghiChu: o.ghiChu ? String(o.ghiChu) : null,
-            capNhatCuoi: o.capNhatCuoi ? String(o.capNhatCuoi) : null,
-          },
-        })
-      )
-    );
+          })
+        )
+      );
+    }
 
-    // 6. Save detected changes into AcademicSyncNotification table
+    // 6. Save detected changes
     if (detectedChanges.length > 0) {
       await prisma.academicSyncNotification.createMany({
         data: detectedChanges.map((ch) => ({
@@ -849,7 +1304,10 @@ export async function saveAndSyncMyBkTranscript(options: {
       studentInfo: resolvedStudentInfo,
       semesters,
       courses,
-      otherCourses,
+      otherCourses:
+        otherCourses.length > 0
+          ? otherCourses
+          : existingCache?.otherCourses || [],
       recentChanges: detectedChanges,
     };
 
@@ -867,7 +1325,10 @@ export async function saveAndSyncMyBkTranscript(options: {
       studentInfo: resolvedStudentInfo,
       semesters,
       courses,
-      otherCourses,
+      otherCourses:
+        otherCourses.length > 0
+          ? otherCourses
+          : existingCache?.otherCourses || [],
       recentChanges: detectedChanges,
     };
     await writeLocalCache(payload);
@@ -876,9 +1337,7 @@ export async function saveAndSyncMyBkTranscript(options: {
 }
 
 /**
- * Background SWR Revalidation Engine:
- * Safely deduplicates concurrent sync requests, auto-refreshes expired JWT tokens via SSO,
- * and falls back gracefully to PostgreSQL data if myBK is offline.
+ * Background SWR Revalidation Engine
  */
 export async function backgroundRevalidateMyBkTranscript(
   force = false
@@ -901,12 +1360,21 @@ export async function backgroundRevalidateMyBkTranscript(
         ? account.lastSyncedAt.getTime()
         : 0;
       const isStale = Date.now() - lastSyncedMs > SWR_STALE_THRESHOLD_MS;
+      const missingV1Fields = await prisma.academicSemester
+        .findFirst({
+          where: {
+            studentId: account.studentId,
+            maNamHocHocKy: { not: "BL" },
+            diemTBTLChungHe10: { not: null },
+          },
+        })
+        .then((row) => !row)
+        .catch(() => false);
 
-      if (!force && !isStale) {
+      if (!force && !isStale && !missingV1Fields) {
         return getStoredMyBkTranscript();
       }
 
-      // Step 1: Ensure valid token (auto-login via SSO if token expired)
       const { jwtToken, refreshed } = await ensureValidMyBkJwt(account);
 
       try {
@@ -917,7 +1385,6 @@ export async function backgroundRevalidateMyBkTranscript(
           tokenRefreshed: refreshed,
         });
       } catch (apiErr) {
-        // Step 2: If myBK rejected the token before its exp timestamp, force a fresh SSO login and retry once!
         if (account.ssoUsername && account.encryptedPassword) {
           const plainPassword = decryptCredential(account.encryptedPassword);
           if (plainPassword) {
@@ -944,13 +1411,13 @@ export async function backgroundRevalidateMyBkTranscript(
 }
 
 /**
- * Fast <20ms Reader from PostgreSQL (with local cache fallback & auto-seed if DB is empty)
+ * Fast <20ms Reader from PostgreSQL (with local cache fallback)
  */
 export async function getStoredMyBkTranscript(): Promise<MyBkTranscriptPayload> {
   const cached = await readLocalCache();
 
   try {
-    let account = await prisma.myBkAccount.findFirst({
+    const account = await prisma.myBkAccount.findFirst({
       orderBy: { updatedAt: "desc" },
       include: {
         semesters: { orderBy: { sortOrder: "asc" } },
@@ -963,138 +1430,6 @@ export async function getStoredMyBkTranscript(): Promise<MyBkTranscriptPayload> 
       },
     });
 
-    // If PostgreSQL is empty but we have local cached data, seed PostgreSQL automatically via upsert!
-    if (!account && cached && cached.studentId && cached.semesters.length > 0) {
-      await prisma.myBkAccount.upsert({
-        where: { studentId: cached.studentId },
-        update: {
-          sinhVienId: cached.semesters[0]?.sinhVienId || 211441,
-          ssoUsername: cached.ssoUsername,
-          studentInfoJson: cached.studentInfo
-            ? JSON.stringify(cached.studentInfo)
-            : null,
-          lastSyncedAt: cached.lastSyncedAt
-            ? new Date(cached.lastSyncedAt)
-            : new Date(),
-        },
-        create: {
-          studentId: cached.studentId,
-          sinhVienId: cached.semesters[0]?.sinhVienId || 211441,
-          ssoUsername: cached.ssoUsername,
-          jwtToken: "",
-          studentInfoJson: cached.studentInfo
-            ? JSON.stringify(cached.studentInfo)
-            : null,
-          lastSyncedAt: cached.lastSyncedAt
-            ? new Date(cached.lastSyncedAt)
-            : new Date(),
-        },
-      });
-
-      await Promise.all(
-        cached.semesters.map((s, idx) =>
-          prisma.academicSemester.upsert({
-            where: {
-              studentId_maNamHocHocKy: {
-                studentId: cached.studentId!,
-                maNamHocHocKy: String(s.maNamHocHocKy),
-              },
-            },
-            update: { sortOrder: idx },
-            create: {
-              studentId: cached.studentId!,
-              namHocHocKyId: Number(s.namHocHocKyId),
-              maNamHocHocKy: String(s.maNamHocHocKy),
-              namHocHocKyTen: String(s.namHocHocKyTen),
-              soTCTLHocKy: Number(s.soTCTLHocKy || 0),
-              diemTBTLHocKy: String(s.diemTBTLHocKy ?? "0.0"),
-              soTCTLChung: String(s.soTCTLChung ?? "0"),
-              diemTBTLChung: String(s.diemTBTLChung ?? "0.0"),
-              capNhatCuoi: s.capNhatCuoi ? String(s.capNhatCuoi) : null,
-              sortOrder: idx,
-            },
-          })
-        )
-      );
-
-      await Promise.all(
-        cached.courses.map((c) =>
-          prisma.academicCourseGrade.upsert({
-            where: {
-              studentId_maHocKy_maMonHoc_monHocId: {
-                studentId: cached.studentId!,
-                maHocKy: String(c.maHocKy),
-                maMonHoc: String(c.maMonHoc),
-                monHocId: Number(c.monHocId),
-              },
-            },
-            update: {},
-            create: {
-              studentId: cached.studentId!,
-              namHocHocKyId: Number(c.namHocHocKyId),
-              maHocKy: String(c.maHocKy),
-              monHocId: Number(c.monHocId),
-              maMonHoc: String(c.maMonHoc),
-              tenMonHoc: String(c.tenMonHoc),
-              soTinChi: Number(c.soTinChi || 0),
-              diemChu: c.diemChu ? String(c.diemChu) : null,
-              diemSo:
-                c.diemSo !== null && c.diemSo !== undefined
-                  ? Number(c.diemSo)
-                  : null,
-              diemDat: c.diemDat !== null ? String(c.diemDat) : null,
-              tinhTrangDiem: c.tinhTrangDiem ? String(c.tinhTrangDiem) : null,
-              diemKhongIn: c.diemKhongIn ? String(c.diemKhongIn) : null,
-              nhomTo: c.nhomTo ? String(c.nhomTo) : null,
-              ghiChu: c.ghiChu ? String(c.ghiChu) : null,
-              componentScoresJson:
-                c.componentScores && c.componentScores.length > 0
-                  ? JSON.stringify(c.componentScores)
-                  : null,
-            },
-          })
-        )
-      );
-
-      await Promise.all(
-        (cached.otherCourses || []).map((o) =>
-          prisma.academicOtherGrade.upsert({
-            where: {
-              studentId_maHocKy_maMonHoc: {
-                studentId: cached.studentId!,
-                maHocKy: String(o.maHocKy || ""),
-                maMonHoc: String(o.maMonHoc || ""),
-              },
-            },
-            update: {},
-            create: {
-              studentId: cached.studentId!,
-              maHocKy: String(o.maHocKy || ""),
-              maMonHoc: String(o.maMonHoc || ""),
-              tenMonHoc: String(o.tenMonHoc || ""),
-              diemSo: o.diemSo !== null ? String(o.diemSo) : null,
-              diemDat: o.diemdat !== null ? String(o.diemdat) : null,
-              ghiChu: o.ghiChu ? String(o.ghiChu) : null,
-              capNhatCuoi: o.capNhatCuoi ? String(o.capNhatCuoi) : null,
-            },
-          })
-        )
-      );
-
-      account = await prisma.myBkAccount.findFirst({
-        orderBy: { updatedAt: "desc" },
-        include: {
-          semesters: { orderBy: { sortOrder: "asc" } },
-          courses: true,
-          otherCourses: true,
-          notifications: {
-            orderBy: { createdAt: "desc" },
-            take: 5,
-          },
-        },
-      });
-    }
-
     if (account && account.semesters.length > 0) {
       const lastSyncedMs = account.lastSyncedAt
         ? account.lastSyncedAt.getTime()
@@ -1102,7 +1437,20 @@ export async function getStoredMyBkTranscript(): Promise<MyBkTranscriptPayload> 
       const hasAutoSso = Boolean(
         account.ssoUsername && account.encryptedPassword
       );
-      const isStale = Date.now() - lastSyncedMs > SWR_STALE_THRESHOLD_MS;
+      const hasV1He10 = account.semesters.some((s) => Boolean(s.diemTBTLChungHe10));
+      const isStale =
+        !hasV1He10 || Date.now() - lastSyncedMs > SWR_STALE_THRESHOLD_MS;
+
+      // Enrich from cached v1 fields if DB hasn't synced v1 yet
+      const cachedSemMap = new Map(
+        (cached?.semesters || []).map((cs) => [cs.maNamHocHocKy, cs])
+      );
+      const cachedCourseMap = new Map(
+        (cached?.courses || []).map((cc) => [
+          `${cc.maHocKy}_${cc.maMonHoc.toUpperCase()}`,
+          cc,
+        ])
+      );
 
       return {
         connected: true,
@@ -1116,37 +1464,53 @@ export async function getStoredMyBkTranscript(): Promise<MyBkTranscriptPayload> 
         studentInfo: account.studentInfoJson
           ? JSON.parse(account.studentInfoJson)
           : cached?.studentInfo || null,
-        semesters: account.semesters.map((s) => ({
-          sinhVienId: account.sinhVienId || 0,
-          namHocHocKyId: s.namHocHocKyId,
-          maNamHocHocKy: s.maNamHocHocKy,
-          namHocHocKyTen: s.namHocHocKyTen,
-          soTCTLHocKy: s.soTCTLHocKy,
-          diemTBTLHocKy: s.diemTBTLHocKy,
-          soTCTLChung: s.soTCTLChung,
-          diemTBTLChung: s.diemTBTLChung,
-          capNhatCuoi: s.capNhatCuoi,
-        })),
-        courses: account.courses.map((c) => ({
-          sinhVienId: account.sinhVienId || 0,
-          namHocHocKyId: c.namHocHocKyId,
-          maHocKy: c.maHocKy,
-          monHocId: c.monHocId,
-          maMonHoc: c.maMonHoc,
-          tenMonHoc: c.tenMonHoc,
-          soTinChi: c.soTinChi,
-          diemChu: c.diemChu,
-          diemSo: c.diemSo,
-          diemDat: c.diemDat,
-          tinhTrangDiem: c.tinhTrangDiem,
-          diemKhongIn: c.diemKhongIn,
-          nhomTo: c.nhomTo,
-          ghiChu: c.ghiChu,
-          isNewUpdate: c.isNewUpdate,
-          componentScores: c.componentScoresJson
-            ? JSON.parse(c.componentScoresJson)
-            : undefined,
-        })),
+        semesters: account.semesters.map((s) => {
+          const cs = cachedSemMap.get(s.maNamHocHocKy);
+          return {
+            sinhVienId: account.sinhVienId || 211441,
+            namHocHocKyId: s.namHocHocKyId,
+            maNamHocHocKy: s.maNamHocHocKy,
+            namHocHocKyTen: s.namHocHocKyTen,
+            soTCTLHocKy: s.soTCTLHocKy,
+            diemTBTLHocKy: s.diemTBTLHocKy,
+            diemTBHocKyHe10: s.diemTBHocKyHe10 ?? cs?.diemTBHocKyHe10 ?? null,
+            diemChuHocKy: s.diemChuHocKy ?? cs?.diemChuHocKy ?? null,
+            soTCTLChung: s.soTCTLChung,
+            diemTBTLChung: s.diemTBTLChung,
+            diemTBTLChungHe10:
+              s.diemTBTLChungHe10 ?? cs?.diemTBTLChungHe10 ?? null,
+            capNhatCuoi: s.capNhatCuoi,
+          };
+        }),
+        courses: account.courses.map((c) => {
+          const cc = cachedCourseMap.get(
+            `${c.maHocKy}_${c.maMonHoc.toUpperCase()}`
+          );
+          return {
+            sinhVienId: account.sinhVienId || 211441,
+            namHocHocKyId: c.namHocHocKyId,
+            maHocKy: c.maHocKy,
+            monHocId: c.monHocId,
+            maMonHoc: c.maMonHoc,
+            tenMonHoc: c.tenMonHoc,
+            tenMonHocEn: c.tenMonHocEn ?? cc?.tenMonHocEn ?? null,
+            soTinChi: c.soTinChi,
+            soTinChiHocPhan: c.soTinChiHocPhan ?? cc?.soTinChiHocPhan ?? null,
+            diemChu: c.diemChu,
+            diemSo: c.diemSo,
+            diemDat: c.diemDat,
+            tinhTrangDiem: c.tinhTrangDiem,
+            diemKhongIn: c.diemKhongIn,
+            nhomTo: c.nhomTo ?? cc?.nhomTo ?? null,
+            nhomThucHanh: c.nhomThucHanh ?? cc?.nhomThucHanh ?? null,
+            ghiChu: c.ghiChu,
+            ngayCongBoDiem: c.ngayCongBoDiem ?? cc?.ngayCongBoDiem ?? null,
+            isNewUpdate: c.isNewUpdate,
+            componentScores: c.componentScoresJson
+              ? JSON.parse(c.componentScoresJson)
+              : cc?.componentScores,
+          };
+        }),
         otherCourses: account.otherCourses.map((o) => ({
           maHocKy: o.maHocKy,
           maMonHoc: o.maMonHoc,

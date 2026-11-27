@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,7 @@ interface ActiveToast extends Required<Pick<ToastPayload, "id" | "variant" | "ti
   description?: string;
   action?: ToastAction;
   durationMs: number;
+  leaving?: boolean;
 }
 
 const TOAST_EVENT_NAME = "mt-workspace-toast";
@@ -50,6 +51,19 @@ export function ToastViewport() {
   const [mounted, setMounted] = useState(false);
   const [items, setItems] = useState<ActiveToast[]>([]);
 
+  // Đánh dấu đang thoát để chạy animation, sau 200ms mới gỡ khỏi danh sách
+  const dismiss = (id: string) => {
+    setItems((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, leaving: true } : t))
+    );
+    setTimeout(() => {
+      setItems((prev) => prev.filter((t) => t.id !== id));
+    }, 200);
+  };
+
+  const dismissRef = useRef(dismiss);
+  dismissRef.current = dismiss;
+
   useEffect(() => {
     setMounted(true);
 
@@ -72,9 +86,7 @@ export function ToastViewport() {
       setItems((prev) => [...prev.slice(-3), nextItem]);
 
       if (nextItem.durationMs > 0) {
-        setTimeout(() => {
-          setItems((prev) => prev.filter((t) => t.id !== id));
-        }, nextItem.durationMs);
+        setTimeout(() => dismissRef.current(id), nextItem.durationMs);
       }
     };
 
@@ -85,7 +97,7 @@ export function ToastViewport() {
   if (!mounted || items.length === 0) return null;
 
   return createPortal(
-    <div className="pointer-events-none fixed right-5 bottom-5 z-[200] flex w-full max-w-sm flex-col gap-2.5">
+    <div className="pointer-events-none fixed right-5 bottom-24 z-[200] flex w-full max-w-sm flex-col gap-2.5">
       {items.map((t) => {
         const isSuccess = t.variant === "success";
         const isError = t.variant === "error";
@@ -93,10 +105,11 @@ export function ToastViewport() {
         return (
           <div
             key={t.id}
+            data-state={t.leaving ? "closing" : "open"}
             className={cn(
-              "pointer-events-auto flex items-center justify-between gap-3 rounded-2xl border bg-card px-4 py-3 text-card-foreground shadow-xl animate-in fade-in slide-in-from-bottom-3 duration-200",
-              isSuccess && "border-emerald-500/40",
-              isError && "border-rose-500/40",
+              "mt-toast pointer-events-auto relative flex items-center justify-between gap-3 overflow-hidden rounded-2xl border bg-card px-4 py-3 text-card-foreground shadow-xl",
+              isSuccess && "border-success/40",
+              isError && "border-danger/40",
               !isSuccess && !isError && "border-primary/35"
             )}
           >
@@ -105,9 +118,9 @@ export function ToastViewport() {
                 className={cn(
                   "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl",
                   isSuccess &&
-                    "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+                    "bg-success/15 text-success-fg",
                   isError &&
-                    "bg-rose-500/15 text-rose-600 dark:text-rose-400",
+                    "bg-danger/15 text-danger-fg",
                   !isSuccess &&
                     !isError &&
                     "bg-primary/15 text-primary"
@@ -127,7 +140,7 @@ export function ToastViewport() {
                   {t.title}
                 </p>
                 {t.description && (
-                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {t.description}
                   </p>
                 )}
@@ -139,7 +152,7 @@ export function ToastViewport() {
                 (t.action.href ? (
                   <a
                     href={t.action.href}
-                    className="rounded-lg bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
+                    className="rounded-lg bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
                   >
                     {t.action.label}
                   </a>
@@ -148,9 +161,9 @@ export function ToastViewport() {
                     type="button"
                     onClick={() => {
                       t.action?.onClick?.();
-                      setItems((prev) => prev.filter((x) => x.id !== t.id));
+                      dismiss(t.id);
                     }}
-                    className="rounded-lg bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
+                    className="rounded-lg bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
                   >
                     {t.action.label}
                   </button>
@@ -158,15 +171,26 @@ export function ToastViewport() {
 
               <button
                 type="button"
-                onClick={() =>
-                  setItems((prev) => prev.filter((x) => x.id !== t.id))
-                }
+                onClick={() => dismiss(t.id)}
                 className="flex h-6 w-6 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 aria-label="Đóng thông báo"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
+
+            {t.durationMs > 0 && (
+              <span
+                aria-hidden
+                className={cn(
+                  "mt-toast-progress absolute bottom-0 left-0 h-0.5 w-full",
+                  isSuccess && "bg-success/60",
+                  isError && "bg-danger/60",
+                  !isSuccess && !isError && "bg-primary/60"
+                )}
+                style={{ animationDuration: `${t.durationMs}ms` }}
+              />
+            )}
           </div>
         );
       })}

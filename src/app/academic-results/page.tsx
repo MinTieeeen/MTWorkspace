@@ -1,27 +1,40 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
-  CheckCircle2,
   ChevronDown,
-  ChevronRight,
   GraduationCap,
   RefreshCw,
   Search,
   ShieldCheck,
-  UserCheck,
   X,
 } from "lucide-react";
 import { MyBkConnectModal } from "@/components/mybk/mybk-connect-modal";
-import { AcademicResultsSkeleton } from "@/components/ui/skeleton";
-import { toast } from "@/components/ui/toast";
+import { CurriculumProgressTab } from "@/components/mybk/curriculum-progress-tab";
 import {
   ComponentScoreItem,
   CourseDetailModal,
   CourseGradeDetailInput,
   OtherCourseRecord,
 } from "@/components/mybk/course-detail-modal";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Collapse } from "@/components/ui/collapse";
+import { Select } from "@/components/ui/select";
+import { SegmentedTabs } from "@/components/ui/segmented-tabs";
+import { AcademicResultsSkeleton } from "@/components/ui/skeleton";
+import {
+  ConnectPrompt,
+  EmptyState,
+  ErrorState,
+  StaleBanner,
+} from "@/components/ui/state";
+import { toast } from "@/components/ui/toast";
+import { normalizeSearch } from "@/lib/format";
+import { gradeTone } from "@/lib/grades";
+import { useMybkResource, type ResourcePayload } from "@/lib/use-mybk-resource";
+import { cn } from "@/lib/utils";
 
 interface StudentOverviewInfo {
   masv: string;
@@ -37,8 +50,11 @@ interface SemesterRecord {
   namHocHocKyTen: string;
   soTCTLHocKy: number;
   diemTBTLHocKy: string;
+  diemTBHocKyHe10?: string | null;
+  diemChuHocKy?: string | null;
   soTCTLChung: string;
   diemTBTLChung: string;
+  diemTBTLChungHe10?: string | null;
   capNhatCuoi: string | null;
 }
 
@@ -49,14 +65,18 @@ interface CourseGradeRecord {
   monHocId: number;
   maMonHoc: string;
   tenMonHoc: string;
+  tenMonHocEn?: string | null;
   soTinChi: number;
+  soTinChiHocPhan?: number | null;
   diemChu: string | null;
   diemSo: number | null;
   diemDat: string | null;
   tinhTrangDiem: string | null;
   diemKhongIn: string | null;
   nhomTo: string | null;
+  nhomThucHanh?: string | null;
   ghiChu: string | null;
+  ngayCongBoDiem?: string | null;
   isNewUpdate?: boolean;
   componentScores?: ComponentScoreItem[];
 }
@@ -70,25 +90,17 @@ interface SyncChangeNotification {
   createdAt: string;
 }
 
-function getLetterBadgeStyle(letter: string | null): string {
-  const l = (letter || "").trim().toUpperCase();
-  if (l === "A+" || l === "A") {
-    return "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400";
-  }
-  if (l === "B+" || l === "B") {
-    return "bg-sky-500/15 text-sky-600 dark:text-sky-400";
-  }
-  if (l === "C+" || l === "C") {
-    return "bg-amber-500/15 text-amber-600 dark:text-amber-400";
-  }
-  if (l === "MT" || l === "DT") {
-    return "bg-teal-500/15 text-teal-600 dark:text-teal-400";
-  }
-  if (l === "D+" || l === "D" || l === "F" || l === "RT") {
-    return "bg-rose-500/15 text-rose-600 dark:text-rose-400";
-  }
-  return "bg-muted text-muted-foreground";
+interface TranscriptPayload extends ResourcePayload {
+  studentId?: string | null;
+  studentInfo?: StudentOverviewInfo | null;
+  semesters?: SemesterRecord[];
+  courses?: CourseGradeRecord[];
+  otherCourses?: OtherCourseRecord[];
+  recentChanges?: SyncChangeNotification[];
 }
+
+const BANNER_STORAGE_KEY = "mt-grade-banner-dismissed";
+const SPECIAL_SCORES = new Set(["Miễn", "Đạt", "Rút môn"]);
 
 function formatNumericScore(
   diemSo: number | null,
@@ -103,157 +115,148 @@ function formatNumericScore(
   return diemSo.toFixed(1);
 }
 
-function formatSyncTimeAgo(iso: string | null): string {
+function formatSyncTime(iso: string | null): string {
   if (!iso) return "";
-  try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString("vi-VN", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+}
+
+function changeSignature(changes: SyncChangeNotification[]): string {
+  return changes
+    .map((c) => c.id ?? `${c.courseCode}-${c.createdAt}`)
+    .join("|");
+}
+
+/** Trạng thái đồng bộ nhỏ ở thanh trên cùng */
+function SyncStatus({
+  refreshing,
+  failed,
+  lastSyncedAt,
+  onRetry,
+}: {
+  refreshing: boolean;
+  failed: boolean;
+  lastSyncedAt: string | null;
+  onRetry: () => void;
+}) {
+  if (refreshing) {
+    return (
+      <span className="inline-flex items-center gap-2 text-[13px] text-muted-foreground">
+        <RefreshCw className="h-3.5 w-3.5 animate-spin text-primary" />
+        Đang đồng bộ...
+      </span>
+    );
   }
+  if (failed) {
+    return (
+      <span className="inline-flex items-center gap-2 text-[13px] text-warning-fg">
+        <span className="h-2 w-2 rounded-full bg-warning" />
+        Đồng bộ lỗi
+        <button
+          type="button"
+          onClick={onRetry}
+          className="font-semibold underline-offset-2 hover:underline"
+        >
+          Thử lại
+        </button>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-2 text-[13px] text-muted-foreground">
+      <span className="h-2 w-2 rounded-full bg-success" />
+      {lastSyncedAt ? `Cập nhật ${formatSyncTime(lastSyncedAt)}` : "Đã đồng bộ"}
+    </span>
+  );
+}
+
+function Stat({
+  label,
+  children,
+  sub,
+}: {
+  label: string;
+  children: React.ReactNode;
+  sub?: React.ReactNode;
+}) {
+  return (
+    <div className="px-6 py-4">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="mt-1 font-display text-2xl font-bold leading-none text-foreground">
+        {children}
+      </p>
+      {sub && (
+        <p className="mt-1.5 font-mono text-xs text-muted-foreground">{sub}</p>
+      )}
+    </div>
+  );
 }
 
 export default function AcademicResultsPage() {
+  const resource = useMybkResource<TranscriptPayload>({
+    url: "/api/mybk/transcript",
+    isEmpty: (d) => Boolean(d.connected) && (d.semesters?.length ?? 0) === 0,
+  });
+  const data = resource.data;
+
   const [activeTab, setActiveTab] = useState<"transcript" | "progress">(
     "transcript"
   );
-  const [connected, setConnected] = useState(false);
-  const [studentId, setStudentId] = useState<string | null>(null);
-  const [studentInfo, setStudentInfo] = useState<StudentOverviewInfo | null>(
-    null
-  );
-  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
-  const [semesters, setSemesters] = useState<SemesterRecord[]>([]);
-  const [courses, setCourses] = useState<CourseGradeRecord[]>([]);
-  const [otherCourses, setOtherCourses] = useState<OtherCourseRecord[]>([]);
-  const [recentChanges, setRecentChanges] = useState<SyncChangeNotification[]>(
-    []
-  );
-  const [dismissedBanner, setDismissedBanner] = useState(false);
-
-  const [loading, setLoading] = useState(true);
-  const [initialLoaded, setInitialLoaded] = useState(false);
-  const [bgSyncing, setBgSyncing] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  const bgSyncRunningRef = useRef(false);
-
-  // Selected course for read-only detail modal
+  const [connectOpen, setConnectOpen] = useState(false);
   const [selectedCourse, setSelectedCourse] =
     useState<CourseGradeDetailInput | null>(null);
+  const [dismissedSig, setDismissedSig] = useState<string | null>(null);
+  const [refreshingManual, setRefreshingManual] = useState(false);
 
-  // Filters
+  // Bộ lọc
   const [semesterLov, setSemesterLov] = useState("ALL");
   const [gradeLov, setGradeLov] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
-  const [collapsedSemesters, setCollapsedSemesters] = useState<
-    Record<string, boolean>
-  >({});
+  // Mặc định mở tất cả học kỳ; người dùng có thể chủ động thu gọn từng kỳ
+  const [toggled, setToggled] = useState<Record<string, boolean>>({});
+  const [otherOpen, setOtherOpen] = useState(true);
 
-  const applyPayload = (data: {
-    connected?: boolean;
-    studentId?: string | null;
-    studentInfo?: StudentOverviewInfo | null;
-    lastSyncedAt?: string | null;
-    semesters?: SemesterRecord[];
-    courses?: CourseGradeRecord[];
-    otherCourses?: OtherCourseRecord[];
-    recentChanges?: SyncChangeNotification[];
-  }) => {
-    setConnected(Boolean(data.connected));
-    setStudentId(data.studentId || null);
-    setStudentInfo(data.studentInfo || null);
-    setLastSyncedAt(data.lastSyncedAt || null);
-    setSemesters(data.semesters || []);
-    setCourses(data.courses || []);
-    setOtherCourses(data.otherCourses || []);
-    if (data.recentChanges && data.recentChanges.length > 0) {
-      setRecentChanges(data.recentChanges);
-    }
-  };
+  const connected = data?.connected === true;
+  const semesters = useMemo(() => data?.semesters ?? [], [data]);
+  const courses = useMemo(() => data?.courses ?? [], [data]);
+  const otherCourses = useMemo(() => data?.otherCourses ?? [], [data]);
+  const recentChanges = useMemo(() => data?.recentChanges ?? [], [data]);
 
-  /**
-   * Background SWR Revalidation:
-   * Silently calls /api/mybk/transcript?revalidate=1 to refresh via Auto-SSO & Upsert into PostgreSQL
-   */
-  const runBackgroundRevalidate = useCallback(async (force = false) => {
-    if (bgSyncRunningRef.current) return;
-    bgSyncRunningRef.current = true;
-    setBgSyncing(true);
+  // Nhớ banner "điểm mới" đã đóng (theo nội dung, có thay đổi mới thì hiện lại)
+  useEffect(() => {
     try {
-      const res = await fetch(
-        `/api/mybk/transcript?revalidate=1${force ? "&force=1" : ""}`,
-        { cache: "no-store" }
-      );
-      if (res.ok) {
-        const freshData = await res.json();
-        applyPayload(freshData);
-        if (force) {
-          toast.success("Đã cập nhật Kết quả học tập");
-        }
-      } else if (force) {
-        toast.error("Không thể làm mới Kết quả học tập");
-      }
+      setDismissedSig(localStorage.getItem(BANNER_STORAGE_KEY));
     } catch {
-      if (force) {
-        toast.error("Lỗi kết nối khi đồng bộ");
-      }
-    } finally {
-      bgSyncRunningRef.current = false;
-      setBgSyncing(false);
+      // không đọc được localStorage: banner vẫn hiện bình thường
     }
   }, []);
 
-  /**
-   * Step 1: Fast <20ms initial read from PostgreSQL, followed by automatic SWR background check
-   */
-  const loadTranscriptSWR = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/mybk/transcript", { cache: "no-store" });
-      if (!res.ok) return;
-      const data = await res.json();
-      applyPayload(data);
-
-      // Step 2: If connected and stale (or has auto-SSO), trigger silent background revalidation
-      if (data.connected && (data.isStale || data.hasAutoSso)) {
-        runBackgroundRevalidate(false);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-      setInitialLoaded(true);
-    }
-  }, [runBackgroundRevalidate]);
-
+  // Đồng bộ ngầm định kỳ, chỉ khi đã kết nối; và khi quay lại tab (tối thiểu cách nhau 1 phút)
+  const refreshRef = useRef(resource.refresh);
+  refreshRef.current = resource.refresh;
+  const lastAutoRef = useRef(Date.now());
   useEffect(() => {
-    loadTranscriptSWR();
-
-    // Auto-revalidate every 5 minutes in the background while workspace is open
-    const intervalId = setInterval(() => {
-      runBackgroundRevalidate(false);
-    }, 5 * 60 * 1000);
-
-    // Revalidate when user switches back to this browser tab
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        runBackgroundRevalidate(false);
+    if (!connected) return;
+    const run = () => {
+      lastAutoRef.current = Date.now();
+      void refreshRef.current(false);
+    };
+    const interval = setInterval(run, 5 * 60 * 1000);
+    const onVisible = () => {
+      if (
+        document.visibilityState === "visible" &&
+        Date.now() - lastAutoRef.current > 60 * 1000
+      ) {
+        run();
       }
     };
-
-    const onManualUpdate = () => loadTranscriptSWR();
-
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    window.addEventListener("mt-mybk-updated", onManualUpdate);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
-      clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.removeEventListener("mt-mybk-updated", onManualUpdate);
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [loadTranscriptSWR, runBackgroundRevalidate]);
+  }, [connected]);
 
   const orderedSemesters = useMemo(() => {
     const regular = semesters
@@ -270,20 +273,17 @@ export default function AcademicResultsPage() {
   const latestWithGpa =
     regularSemesters.find((s) => Number(s.diemTBTLHocKy) > 0) ||
     latestCumulative;
-
   const cpa = latestCumulative?.diemTBTLChung || "--";
+  const cpaHe10 = latestCumulative?.diemTBTLChungHe10 || null;
   const totalCredits = latestCumulative?.soTCTLChung || "--";
-  const latestSemGpa = latestWithGpa?.diemTBTLHocKy || "--";
-  const latestSemCode = latestWithGpa?.maNamHocHocKy || "";
+  const latestGpa = latestWithGpa?.diemTBTLHocKy || "--";
+  const latestGpa10 = latestWithGpa?.diemTBHocKyHe10 || null;
+  const latestGpaLetter = latestWithGpa?.diemChuHocKy || null;
+  const latestCode = latestWithGpa?.maNamHocHocKy || "";
 
-  const toggleSemester = (maHocKy: string) => {
-    setCollapsedSemesters((prev) => ({
-      ...prev,
-      [maHocKy]: !prev[maHocKy],
-    }));
-  };
+  const filtersActive = gradeLov !== "ALL" || searchQuery.trim() !== "";
 
-  const matchGradeFilter = (letter: string | null): boolean => {
+  const matchGrade = (letter: string | null): boolean => {
     if (gradeLov === "ALL") return true;
     const l = (letter || "").trim().toUpperCase();
     if (gradeLov === "A") return l === "A+" || l === "A";
@@ -295,26 +295,39 @@ export default function AcademicResultsPage() {
     return true;
   };
 
-  const filteredSemesters = orderedSemesters.filter((sem) =>
-    semesterLov === "ALL" ? true : sem.maNamHocHocKy === semesterLov
+  const query = normalizeSearch(searchQuery.trim());
+  const matchQuery = (code: string, name: string) =>
+    !query || normalizeSearch(`${code} ${name}`).includes(query);
+
+  const visibleSemesters = useMemo(() => {
+    return orderedSemesters
+      .filter((s) => semesterLov === "ALL" || s.maNamHocHocKy === semesterLov)
+      .map((sem) => {
+        const semCourses = courses.filter((c) => {
+          const same =
+            String(c.maHocKy) === String(sem.maNamHocHocKy) ||
+            Number(c.namHocHocKyId) === Number(sem.namHocHocKyId);
+          return same && matchGrade(c.diemChu) && matchQuery(c.maMonHoc, c.tenMonHoc);
+        });
+        return { sem, courses: semCourses };
+      })
+      .filter((x) => !filtersActive || x.courses.length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderedSemesters, courses, semesterLov, gradeLov, query, filtersActive]);
+
+  const visibleOther = otherCourses.filter(
+    (o) =>
+      (semesterLov === "ALL" || o.maHocKy === semesterLov) &&
+      matchQuery(o.maMonHoc, o.tenMonHoc || "") &&
+      gradeLov === "ALL"
   );
 
-  const filteredOtherCourses = otherCourses.filter((o) => {
-    if (semesterLov !== "ALL" && o.maHocKy !== semesterLov) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      return (
-        o.maMonHoc.toLowerCase().includes(q) ||
-        o.tenMonHoc.toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
+  const isOpen = (code: string) =>
+    filtersActive ? true : toggled[code] ?? true;
+  const toggleSemester = (code: string) =>
+    setToggled((prev) => ({ ...prev, [code]: !isOpen(code) }));
 
-  const handleOpenCourseDetail = (
-    course: CourseGradeRecord,
-    sem?: SemesterRecord
-  ) => {
+  const openCourse = (course: CourseGradeRecord, sem?: SemesterRecord) => {
     setSelectedCourse({
       ...course,
       namHocHocKyTen: sem?.namHocHocKyTen,
@@ -322,19 +335,17 @@ export default function AcademicResultsPage() {
     });
   };
 
-  const handleOpenOtherCourseDetail = (other: OtherCourseRecord) => {
+  const openOther = (other: OtherCourseRecord) => {
     const sem = semesters.find((s) => s.maNamHocHocKy === other.maHocKy);
-    const matchingCourse = courses.find(
+    const match = courses.find(
       (c) =>
         c.maMonHoc.toUpperCase() === other.maMonHoc.toUpperCase() &&
         c.maHocKy === other.maHocKy
     );
-
-    if (matchingCourse) {
-      handleOpenCourseDetail(matchingCourse, sem);
+    if (match) {
+      openCourse(match, sem);
       return;
     }
-
     setSelectedCourse({
       sinhVienId: semesters[0]?.sinhVienId || 0,
       namHocHocKyId: sem?.namHocHocKyId || 0,
@@ -359,95 +370,545 @@ export default function AcademicResultsPage() {
     });
   };
 
-  if (!initialLoaded) return <AcademicResultsSkeleton />;
+  const openChange = (change: SyncChangeNotification) => {
+    const course = courses.find(
+      (c) => c.maMonHoc.toUpperCase() === change.courseCode.toUpperCase()
+    );
+    if (course) {
+      openCourse(
+        course,
+        semesters.find((s) => s.maNamHocHocKy === course.maHocKy)
+      );
+    }
+  };
 
-  return (
-    <div className="mx-auto max-w-6xl space-y-5">
-      {/* 1. Top Navigation Bar: 2 Tabs + Auto-Sync Status Indicator */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-card px-5 py-3">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab("transcript")}
-            className={`rounded-xl px-4 py-2 text-sm font-bold transition-colors ${
-              activeTab === "transcript"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            }`}
-          >
-            Bảng điểm học kỳ
-          </button>
+  const handleRefresh = async () => {
+    setRefreshingManual(true);
+    try {
+      const ok = await resource.refresh(true);
+      if (ok) toast.success("Đã cập nhật Kết quả học tập");
+      else toast.error("Không thể làm mới Kết quả học tập");
+    } finally {
+      setRefreshingManual(false);
+    }
+  };
 
-          <button
-            type="button"
-            onClick={() => setActiveTab("progress")}
-            className={`rounded-xl px-4 py-2 text-sm font-bold transition-colors ${
-              activeTab === "progress"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            }`}
-          >
-            Tiến độ học tập
-          </button>
-        </div>
+  const dismissBanner = () => {
+    const sig = changeSignature(recentChanges);
+    setDismissedSig(sig);
+    try {
+      localStorage.setItem(BANNER_STORAGE_KEY, sig);
+    } catch {
+      // bỏ qua: chỉ mất ghi nhớ giữa các lần mở
+    }
+  };
 
-        {/* Right: Auto-SSO SWR Status Pill & Settings Trigger */}
-        <div className="flex items-center gap-2">
-          {connected && (
-            <div className="inline-flex items-center gap-2 rounded-xl border bg-muted/40 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
-              {bgSyncing ? (
+  const ssoExpired =
+    data?.errorCode === "SSO_EXPIRED" || resource.status === "sso-expired";
+
+  if (!data && resource.status === "loading") {
+    return <AcademicResultsSkeleton />;
+  }
+
+  const bannerVisible =
+    recentChanges.length > 0 && dismissedSig !== changeSignature(recentChanges);
+
+  // ===== Nội dung tab Bảng điểm =====
+  const renderTranscript = () => {
+    if (resource.status === "error") {
+      return (
+        <ErrorState
+          title="Không tải được bảng điểm"
+          message={resource.error ?? undefined}
+          onRetry={resource.retry}
+        />
+      );
+    }
+    if (resource.status === "not-connected" || resource.status === "sso-expired") {
+      const expired = resource.status === "sso-expired";
+      return (
+        <ConnectPrompt
+          expired={expired}
+          title={
+            expired ? "Phiên đăng nhập myBK đã hết hạn" : "Chưa kết nối myBK"
+          }
+          description={
+            expired
+              ? "Đăng nhập lại để cập nhật bảng điểm."
+              : "Kết nối tài khoản SSO HCMUT để đồng bộ bảng điểm của bạn."
+          }
+          actionLabel={expired ? "Đăng nhập lại" : "Kết nối SSO myBK"}
+          onConnect={() => setConnectOpen(true)}
+        />
+      );
+    }
+    if (resource.status === "empty" || semesters.length === 0) {
+      return (
+        <EmptyState
+          icon={<GraduationCap />}
+          title="Chưa có dữ liệu điểm"
+          description="Hãy làm mới để đồng bộ từ myBK."
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={refreshingManual}
+              onClick={handleRefresh}
+            >
+              Làm mới
+            </Button>
+          }
+        />
+      );
+    }
+
+    return (
+      <>
+        {/* ===== Tổng quan: danh tính + 3 chỉ số chính ===== */}
+        <section className="overflow-hidden rounded-2xl border bg-card">
+          <div className="border-b bg-muted/20 px-6 py-4">
+            <h2 className="font-display text-lg font-bold tracking-tight text-foreground">
+              {data?.studentInfo?.hovaten || "Sinh viên Bách Khoa"}
+            </h2>
+            <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+              MSSV {data?.studentInfo?.masv || data?.studentId || "--"}
+              {data?.studentInfo?.malop && ` · Lớp ${data.studentInfo.malop}`}
+            </p>
+          </div>
+          <div className="grid grid-cols-1 divide-y sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            <Stat
+              label="CPA tích lũy"
+              sub={cpaHe10 ? `${cpaHe10} / 10` : undefined}
+            >
+              <span className="text-success-fg">{cpa}</span>
+            </Stat>
+            <Stat label="Tín chỉ tích lũy">
+              {totalCredits !== "--" ? (
                 <>
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-primary" />
-                  <span className="text-foreground">Đang đồng bộ ngầm...</span>
-                </>
-              ) : (
-                <>
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  <span>
-                    Tự động đồng bộ
-                    {lastSyncedAt
-                      ? ` • ${formatSyncTimeAgo(lastSyncedAt)}`
-                      : ""}
+                  {totalCredits}
+                  <span className="ml-1 text-sm font-medium text-muted-foreground">
+                    TC
                   </span>
                 </>
+              ) : (
+                "--"
               )}
-            </div>
-          )}
+            </Stat>
+            <Stat
+              label={`GPA học kỳ ${latestCode || "gần nhất"}`}
+              sub={
+                latestGpa10
+                  ? `${latestGpa10} / 10${
+                      latestGpaLetter ? ` · ${latestGpaLetter}` : ""
+                    }`
+                  : undefined
+              }
+            >
+              <span className="text-primary">{latestGpa}</span>
+            </Stat>
+          </div>
+        </section>
 
-          <button
-            type="button"
-            onClick={() => setModalOpen(true)}
-            className="group inline-flex h-9 items-center gap-2 rounded-xl bg-primary px-3.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+        {/* ===== Bộ lọc ===== */}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-card px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Select
+              value={semesterLov}
+              onChange={(e) => setSemesterLov(e.target.value)}
+              aria-label="Chọn học kỳ"
+              className="max-w-[15rem] truncate"
+            >
+              <option value="ALL">Tất cả học kỳ ({orderedSemesters.length})</option>
+              {orderedSemesters.map((s) => (
+                <option key={s.maNamHocHocKy} value={s.maNamHocHocKy}>
+                  {s.maNamHocHocKy} — {s.namHocHocKyTen}
+                </option>
+              ))}
+            </Select>
+            <Select
+              value={gradeLov}
+              onChange={(e) => setGradeLov(e.target.value)}
+              aria-label="Lọc điểm chữ"
+            >
+              <option value="ALL">Tất cả điểm</option>
+              <option value="A">A / A+</option>
+              <option value="B">B / B+</option>
+              <option value="C">C / C+</option>
+              <option value="D">D / D+ / F / RT</option>
+              <option value="EXEMPT">Miễn / Đạt</option>
+            </Select>
+          </div>
+
+          <div className="relative flex items-center">
+            <Search className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Tìm môn (không cần gõ dấu)"
+              aria-label="Tìm môn học"
+              className="h-9 w-64 rounded-lg border bg-background pl-9 pr-8 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:border-primary/40 focus:border-primary"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                aria-label="Xóa tìm kiếm"
+                className="absolute right-2 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ===== Danh sách học kỳ ===== */}
+        {visibleSemesters.length === 0 ? (
+          <EmptyState
+            title="Không có môn phù hợp bộ lọc"
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setSearchQuery("");
+                  setGradeLov("ALL");
+                  setSemesterLov("ALL");
+                }}
+              >
+                Xóa bộ lọc
+              </Button>
+            }
+          />
+        ) : (
+          <div className="mt-stagger space-y-4">
+            {visibleSemesters.map(({ sem, courses: semCourses }) => {
+              const open = isOpen(sem.maNamHocHocKy);
+              const isTransfer = sem.maNamHocHocKy === "BL";
+              return (
+                <section
+                  key={sem.maNamHocHocKy}
+                  className="overflow-hidden rounded-2xl border bg-card"
+                >
+                  {/* Tiêu đề học kỳ: GPA + TC là chính, CPA là phụ */}
+                  <button
+                    type="button"
+                    onClick={() => toggleSemester(sem.maNamHocHocKy)}
+                    aria-expanded={open}
+                    className={cn(
+                      "flex w-full flex-wrap items-center justify-between gap-x-4 gap-y-1 bg-muted/25 px-5 py-3.5 text-left transition-colors hover:bg-muted/40",
+                      open && "border-b"
+                    )}
+                  >
+                    <span className="flex min-w-0 items-center gap-3">
+                      <ChevronDown
+                        className={cn(
+                          "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
+                          !open && "-rotate-90"
+                        )}
+                      />
+                      <Badge tone="primary">{sem.maNamHocHocKy}</Badge>
+                      <span className="truncate font-display text-[15px] font-semibold text-foreground">
+                        {sem.namHocHocKyTen}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-4 font-mono text-[13px] text-muted-foreground">
+                      {isTransfer ? (
+                        <span>
+                          <span className="font-semibold text-success-fg">
+                            {sem.soTCTLHocKy}
+                          </span>{" "}
+                          TC miễn / bảo lưu
+                        </span>
+                      ) : (
+                        <>
+                          <span>
+                            GPA{" "}
+                            <span className="font-semibold text-primary">
+                              {sem.diemTBTLHocKy}
+                            </span>
+                          </span>
+                          <span>
+                            <span className="font-semibold text-foreground">
+                              {sem.soTCTLHocKy}
+                            </span>{" "}
+                            TC
+                          </span>
+                          <span className="hidden sm:inline">
+                            CPA {sem.diemTBTLChung}
+                          </span>
+                        </>
+                      )}
+                    </span>
+                  </button>
+
+                  <Collapse open={open}>
+                    {semCourses.length === 0 ? (
+                      <p className="px-5 py-6 text-center text-[13px] text-muted-foreground">
+                        Chưa có điểm môn học trong học kỳ này
+                      </p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-[13px]">
+                          <thead>
+                            <tr className="border-b text-xs font-semibold text-muted-foreground">
+                              <th className="px-5 py-2.5">Môn học</th>
+                              <th className="px-3 py-2.5 text-center">TC</th>
+                              <th className="px-3 py-2.5">Điểm</th>
+                              <th className="hidden px-5 py-2.5 sm:table-cell">
+                                Ghi chú
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {semCourses.map((course) => {
+                              const score = formatNumericScore(
+                                course.diemSo,
+                                course.diemChu
+                              );
+                              const special = SPECIAL_SCORES.has(score);
+                              const note =
+                                course.ghiChu ||
+                                (course.diemDat === "1" && !course.diemChu
+                                  ? "Đạt"
+                                  : "");
+                              return (
+                                <tr
+                                  key={`${sem.maNamHocHocKy}-${course.monHocId}-${course.maMonHoc}`}
+                                  onClick={() => openCourse(course, sem)}
+                                  className="cursor-pointer transition-colors hover:bg-muted/30"
+                                >
+                                  {/* Môn: tên, rồi mã · nhóm */}
+                                  <td className="px-5 py-3">
+                                    <p className="flex items-center gap-2 font-display text-sm font-semibold text-foreground">
+                                      {course.tenMonHoc}
+                                      {course.isNewUpdate && (
+                                        <Badge tone="success">Mới</Badge>
+                                      )}
+                                    </p>
+                                    <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                                      {course.maMonHoc}
+                                      {course.nhomTo &&
+                                        ` · Nhóm ${
+                                          course.nhomThucHanh
+                                            ? `${course.nhomTo}-${course.nhomThucHanh}`
+                                            : course.nhomTo
+                                        }`}
+                                    </p>
+                                  </td>
+
+                                  <td className="px-3 py-3 text-center font-mono font-medium text-foreground">
+                                    {course.soTinChi}
+                                    {course.soTinChi === 0 &&
+                                      course.soTinChiHocPhan &&
+                                      course.soTinChiHocPhan > 0 && (
+                                        <span className="ml-1 text-xs text-muted-foreground">
+                                          ({course.soTinChiHocPhan} HP)
+                                        </span>
+                                      )}
+                                  </td>
+
+                                  {/* Điểm: số + chữ trong một ô */}
+                                  <td className="px-3 py-3">
+                                    {special ? (
+                                      <Badge tone={gradeTone(course.diemChu)}>
+                                        {score}
+                                      </Badge>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-2">
+                                        <span className="min-w-8 font-mono text-sm font-semibold text-foreground">
+                                          {score}
+                                        </span>
+                                        {course.diemChu && (
+                                          <Badge tone={gradeTone(course.diemChu)}>
+                                            {course.diemChu}
+                                          </Badge>
+                                        )}
+                                      </span>
+                                    )}
+                                  </td>
+
+                                  <td className="hidden px-5 py-3 text-xs text-muted-foreground sm:table-cell">
+                                    {note || "—"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </Collapse>
+                </section>
+              );
+            })}
+
+            {/* ===== Môn khác và chứng chỉ điều kiện: thu gọn sẵn ===== */}
+            {visibleOther.length > 0 && (
+              <section className="overflow-hidden rounded-2xl border bg-card">
+                <button
+                  type="button"
+                  onClick={() => setOtherOpen((o) => !o)}
+                  aria-expanded={otherOpen}
+                  className={cn(
+                    "flex w-full items-center justify-between bg-muted/25 px-5 py-3.5 text-left transition-colors hover:bg-muted/40",
+                    otherOpen && "border-b"
+                  )}
+                >
+                  <span className="font-display text-[15px] font-semibold text-foreground">
+                    Môn khác & chứng chỉ điều kiện
+                    <span className="ml-1.5 font-mono text-[13px] font-medium text-muted-foreground">
+                      ({visibleOther.length})
+                    </span>
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 text-muted-foreground transition-transform duration-200",
+                      !otherOpen && "-rotate-90"
+                    )}
+                  />
+                </button>
+                <Collapse open={otherOpen}>
+                  <ul className="divide-y">
+                    {visibleOther.map((oth, idx) => (
+                      <li key={`other-${oth.maHocKy}-${oth.maMonHoc}-${idx}`}>
+                        <button
+                          type="button"
+                          onClick={() => openOther(oth)}
+                          className="grid w-full grid-cols-[4.5rem_1fr_auto] items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-muted/30"
+                        >
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {oth.maHocKy}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate font-display text-sm font-semibold text-foreground">
+                              {oth.tenMonHoc && oth.tenMonHoc !== "--"
+                                ? oth.tenMonHoc
+                                : `Chứng chỉ / Điều kiện (${oth.maMonHoc})`}
+                            </span>
+                            <span className="block font-mono text-xs text-muted-foreground">
+                              {oth.maMonHoc}
+                            </span>
+                          </span>
+                          <Badge tone="success">{oth.ghiChu || "Đạt"}</Badge>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </Collapse>
+              </section>
+            )}
+          </div>
+        )}
+      </>
+    );
+  };
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-4">
+      {/* ===== Thanh trên: tab · trạng thái đồng bộ · làm mới · tài khoản SSO ===== */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-card px-4 py-3">
+        <SegmentedTabs
+          value={activeTab}
+          onChange={setActiveTab}
+          options={[
+            { value: "transcript", label: "Bảng điểm" },
+            { value: "progress", label: "Tiến độ học tập" },
+          ]}
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          {connected && (
+            <SyncStatus
+              refreshing={resource.refreshing || refreshingManual}
+              failed={resource.isStale}
+              lastSyncedAt={resource.lastSyncedAt}
+              onRetry={handleRefresh}
+            />
+          )}
+          {connected && (
+            <Button
+              variant="secondary"
+              size="icon"
+              onClick={handleRefresh}
+              disabled={refreshingManual}
+              aria-label="Đồng bộ ngay từ myBK"
+              title="Đồng bộ ngay từ myBK"
+            >
+              <RefreshCw
+                className={cn(
+                  "h-4 w-4",
+                  (refreshingManual || resource.refreshing) && "animate-spin"
+                )}
+              />
+            </Button>
+          )}
+          <Button
+            variant={connected ? "secondary" : "primary"}
+            onClick={() => setConnectOpen(true)}
           >
-            <ShieldCheck className="h-4 w-4 icon-anim-wiggle" />
-            <span>{connected ? "Tài khoản SSO" : "Kết nối SSO myBK"}</span>
-          </button>
+            <ShieldCheck className="h-4 w-4" />
+            {connected ? "Tài khoản SSO" : "Kết nối myBK"}
+          </Button>
         </div>
       </div>
 
-      {/* Detected Grade Updates Notification Banner (From Diff Engine) */}
-      {!dismissedBanner && recentChanges.length > 0 && (
-        <div className="flex items-start justify-between gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-3.5 text-sm">
-          <div className="flex items-start gap-3">
-            <Bell className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-            <div className="space-y-1">
-              <p className="font-bold text-foreground">
-                Phát hiện cập nhật điểm mới từ myBK
+      {/* Phiên SSO hết hạn nhưng vẫn còn dữ liệu đã lưu */}
+      {ssoExpired && connected && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-2.5 text-[13px] text-warning-fg animate-in fade-in duration-200">
+          <span>Phiên đăng nhập myBK đã hết hạn, đang hiển thị điểm đã lưu.</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-warning-fg hover:bg-warning/15"
+            onClick={() => setConnectOpen(true)}
+          >
+            Đăng nhập lại
+          </Button>
+        </div>
+      )}
+
+      {/* Đồng bộ lỗi (không phải do SSO) nhưng còn dữ liệu */}
+      {resource.isStale && !ssoExpired && connected && (
+        <StaleBanner
+          lastSyncedAt={resource.lastSyncedAt}
+          message="Chưa cập nhật được điểm từ myBK, đang hiển thị dữ liệu đã lưu"
+          refreshing={refreshingManual}
+          onRefresh={handleRefresh}
+        />
+      )}
+
+      {/* Điểm mới phát hiện: đóng được và nhớ lựa chọn */}
+      {activeTab === "transcript" && bannerVisible && (
+        <div className="flex items-start justify-between gap-3 rounded-2xl border border-success/30 bg-success/10 px-5 py-3.5 animate-in fade-in slide-in-from-top-1 duration-200">
+          <div className="flex min-w-0 items-start gap-3">
+            <Bell className="mt-0.5 h-4 w-4 shrink-0 text-success-fg" />
+            <div className="min-w-0">
+              <p className="font-display text-sm font-semibold text-foreground">
+                Có cập nhật điểm mới từ myBK
               </p>
-              <div className="space-y-0.5 text-xs text-muted-foreground">
+              <ul className="mt-1 space-y-0.5">
                 {recentChanges.slice(0, 3).map((ch, i) => (
-                  <p key={`${ch.courseCode}-${i}`}>
-                    <strong className="text-foreground">{ch.title}:</strong>{" "}
-                    {ch.message}
-                  </p>
+                  <li key={`${ch.courseCode}-${i}`}>
+                    <button
+                      type="button"
+                      onClick={() => openChange(ch)}
+                      className="text-left text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <span className="font-semibold text-foreground">
+                        {ch.title}:
+                      </span>{" "}
+                      {ch.message}
+                    </button>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           </div>
           <button
             type="button"
-            onClick={() => setDismissedBanner(true)}
-            className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={dismissBanner}
+            aria-label="Đóng thông báo điểm mới"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </button>
@@ -455,421 +916,32 @@ export default function AcademicResultsPage() {
       )}
 
       {activeTab === "progress" ? (
-        <div className="flex h-80 flex-col items-center justify-center gap-2 rounded-2xl border bg-card p-6 text-center">
-          <GraduationCap className="h-8 w-8 text-muted-foreground" />
-          <p className="font-display text-base font-bold text-foreground">
-            Tiến độ học tập
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Sẽ triển khai ở bước tiếp theo sau Bảng điểm học kỳ
-          </p>
-        </div>
+        <CurriculumProgressTab
+          onConnect={() => setConnectOpen(true)}
+          transcriptCourses={courses.map((c) => {
+            const sem = semesters.find((s) => s.maNamHocHocKy === c.maHocKy);
+            return {
+              maMonHoc: c.maMonHoc,
+              tenMonHocEn: c.tenMonHocEn,
+              soTinChiHocPhan: c.soTinChiHocPhan,
+              maHocKy: c.maHocKy,
+              namHocHocKyTen: sem?.namHocHocKyTen,
+              nhomTo: c.nhomTo,
+              nhomThucHanh: c.nhomThucHanh,
+              soTinChi: c.soTinChi,
+              diemSo: c.diemSo,
+              diemChu: c.diemChu,
+              ghiChu: c.ghiChu,
+              ngayCongBoDiem: c.ngayCongBoDiem,
+              capNhatCuoi: sem?.capNhatCuoi,
+              componentScores: c.componentScores,
+            };
+          })}
+        />
       ) : (
-        <>
-          {/* 2. Unified Overview Box */}
-          <section className="overflow-hidden rounded-2xl border bg-card">
-            <div className="flex flex-col justify-between gap-4 border-b bg-muted/20 px-6 py-4 md:flex-row md:items-center">
-              <div className="flex items-center gap-3.5">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <UserCheck className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="font-display text-lg font-extrabold tracking-tight text-foreground">
-                    {studentInfo?.hovaten || "Sinh viên Bách Khoa"}
-                  </h2>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-semibold text-muted-foreground">
-                    <span className="font-mono rounded-md bg-primary/10 px-2 py-0.5 font-bold text-primary">
-                      MSSV: {studentInfo?.masv || studentId || "--"}
-                    </span>
-                    {studentInfo?.malop && (
-                      <span className="font-mono rounded-md border bg-card px-2 py-0.5 font-bold text-foreground">
-                        Lớp: {studentInfo.malop}
-                      </span>
-                    )}
-                    {studentInfo?.namHocHocKyTen && (
-                      <span className="rounded-md bg-muted px-2 py-0.5">
-                        {studentInfo.namHocHocKyTen}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Unified 4-Column Academic Summary Row */}
-            <div className="grid grid-cols-2 divide-y sm:grid-cols-4 sm:divide-x sm:divide-y-0">
-              <div className="px-6 py-4">
-                <span className="text-xs font-semibold text-muted-foreground">
-                  CPA tích lũy (Hệ 4)
-                </span>
-                <p className="font-display mt-1 text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">
-                  {cpa}
-                </p>
-              </div>
-
-              <div className="px-6 py-4">
-                <span className="text-xs font-semibold text-muted-foreground">
-                  Tín chỉ tích lũy
-                </span>
-                <p className="font-display mt-1 text-2xl font-extrabold text-foreground">
-                  {totalCredits !== "--" ? `${totalCredits} TC` : "--"}
-                </p>
-              </div>
-
-              <div className="px-6 py-4">
-                <span className="text-xs font-semibold text-muted-foreground">
-                  GPA kỳ {latestSemCode || "gần nhất"}
-                </span>
-                <p className="font-display mt-1 text-2xl font-extrabold text-primary">
-                  {latestSemGpa}
-                </p>
-              </div>
-
-              <div className="px-6 py-4">
-                <span className="text-xs font-semibold text-muted-foreground">
-                  Tổng môn đã học
-                </span>
-                <p className="font-display mt-1 text-2xl font-extrabold text-foreground">
-                  {courses.length ? `${courses.length} môn` : "--"}
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* 3. Filter Toolbar (LOV Semester + LOV Grade + Search) */}
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-card px-5 py-3">
-            <div className="flex flex-wrap items-center gap-2.5">
-              {/* LOV 1: Semester */}
-              <div className="relative">
-                <select
-                  value={semesterLov}
-                  onChange={(e) => setSemesterLov(e.target.value)}
-                  aria-label="Chọn học kỳ"
-                  className="h-9 appearance-none rounded-xl border bg-muted/40 pl-3 pr-8 text-sm font-semibold text-foreground outline-none transition-colors hover:border-primary/40 focus:border-primary"
-                >
-                  <option value="ALL" className="bg-card text-foreground">
-                    Tất cả học kỳ ({orderedSemesters.length})
-                  </option>
-                  {orderedSemesters.map((s) => (
-                    <option
-                      key={s.maNamHocHocKy}
-                      value={s.maNamHocHocKy}
-                      className="bg-card text-foreground"
-                    >
-                      [{s.maNamHocHocKy}] {s.namHocHocKyTen}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              </div>
-
-              {/* LOV 2: Letter Grade */}
-              <div className="relative">
-                <select
-                  value={gradeLov}
-                  onChange={(e) => setGradeLov(e.target.value)}
-                  aria-label="Lọc điểm chữ"
-                  className="h-9 appearance-none rounded-xl border bg-muted/40 pl-3 pr-8 text-sm font-semibold text-foreground outline-none transition-colors hover:border-primary/40 focus:border-primary"
-                >
-                  <option value="ALL" className="bg-card text-foreground">
-                    Tất cả điểm
-                  </option>
-                  <option value="A" className="bg-card text-foreground">
-                    Điểm A / A+
-                  </option>
-                  <option value="B" className="bg-card text-foreground">
-                    Điểm B / B+
-                  </option>
-                  <option value="C" className="bg-card text-foreground">
-                    Điểm C / C+
-                  </option>
-                  <option value="D" className="bg-card text-foreground">
-                    Điểm D / D+ / F / RT
-                  </option>
-                  <option value="EXEMPT" className="bg-card text-foreground">
-                    Miễn / Đạt (MT / DT)
-                  </option>
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              </div>
-            </div>
-
-            {/* Search & Force Revalidate */}
-            <div className="flex items-center gap-2">
-              <div className="relative flex items-center">
-                <Search className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Tìm mã môn, tên môn..."
-                  className="h-9 w-56 rounded-xl border bg-muted/40 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground outline-none transition-colors focus:border-primary focus:bg-card"
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => runBackgroundRevalidate(true)}
-                title="Đồng bộ trực tiếp từ myBK ngay"
-                className="group flex h-9 w-9 items-center justify-center rounded-xl border bg-card text-foreground transition-colors hover:border-primary/40 hover:bg-muted"
-              >
-                <RefreshCw
-                  className={`h-4 w-4 text-primary transition-transform duration-500 group-hover:rotate-180 ${
-                    loading || bgSyncing ? "animate-spin" : ""
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
-
-          {/* 4. Semesters & Courses List */}
-          {!connected && semesters.length === 0 ? (
-            <div className="flex h-72 flex-col items-center justify-center gap-3 rounded-2xl border bg-card p-6 text-center">
-              <GraduationCap className="h-10 w-10 text-primary" />
-              <p className="font-display text-base font-bold text-foreground">
-                Chưa đồng bộ bảng điểm từ myBK
-              </p>
-              <button
-                type="button"
-                onClick={() => setModalOpen(true)}
-                className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
-              >
-                <ShieldCheck className="h-4 w-4" />
-                <span>Kết nối SSO HCMUT ngay</span>
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredSemesters.map((sem) => {
-                const semCourses = courses.filter((c) => {
-                  const sameSem =
-                    String(c.maHocKy) === String(sem.maNamHocHocKy) ||
-                    Number(c.namHocHocKyId) === Number(sem.namHocHocKyId);
-                  if (!sameSem) return false;
-                  if (!matchGradeFilter(c.diemChu)) return false;
-                  if (searchQuery.trim()) {
-                    const q = searchQuery.toLowerCase();
-                    return (
-                      c.maMonHoc.toLowerCase().includes(q) ||
-                      c.tenMonHoc.toLowerCase().includes(q)
-                    );
-                  }
-                  return true;
-                });
-
-                if (
-                  (gradeLov !== "ALL" || searchQuery.trim()) &&
-                  semCourses.length === 0
-                ) {
-                  return null;
-                }
-
-                const isCollapsed = Boolean(
-                  collapsedSemesters[sem.maNamHocHocKy]
-                );
-
-                return (
-                  <section
-                    key={sem.maNamHocHocKy}
-                    className="overflow-hidden rounded-2xl border bg-card"
-                  >
-                    {/* Semester Header */}
-                    <div
-                      onClick={() => toggleSemester(sem.maNamHocHocKy)}
-                      className="flex flex-wrap cursor-pointer items-center justify-between gap-3 border-b bg-muted/30 px-5 py-3.5 transition-colors hover:bg-muted/60"
-                    >
-                      <div className="flex items-center gap-3">
-                        {isCollapsed ? (
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                        )}
-                        <span className="font-mono rounded-lg bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">
-                          {sem.maNamHocHocKy}
-                        </span>
-                        <h3 className="font-display text-base font-bold text-foreground">
-                          {sem.namHocHocKyTen}
-                        </h3>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className="rounded-lg border bg-card px-2.5 py-1 font-semibold">
-                          GPA HK:{" "}
-                          <strong className="text-primary">
-                            {sem.diemTBTLHocKy}
-                          </strong>
-                        </span>
-                        <span className="rounded-lg border bg-card px-2.5 py-1 font-semibold">
-                          TC HK: <strong>{sem.soTCTLHocKy}</strong>
-                        </span>
-                        <span className="rounded-lg border bg-card px-2.5 py-1 font-semibold">
-                          CPA TL:{" "}
-                          <strong className="text-emerald-600 dark:text-emerald-400">
-                            {sem.diemTBTLChung}
-                          </strong>
-                        </span>
-                        <span className="rounded-lg border bg-card px-2.5 py-1 font-semibold">
-                          TC TL: <strong>{sem.soTCTLChung}</strong>
-                        </span>
-                        {sem.capNhatCuoi && (
-                          <span className="hidden xl:inline text-muted-foreground pl-1">
-                            {sem.capNhatCuoi}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Semester Courses Table */}
-                    {!isCollapsed && (
-                      <div className="overflow-x-auto">
-                        {semCourses.length === 0 ? (
-                          <div className="p-6 text-center text-sm text-muted-foreground">
-                            Chưa có điểm môn học trong học kỳ này
-                          </div>
-                        ) : (
-                          <table className="w-full text-left text-sm">
-                            <thead>
-                              <tr className="border-b bg-muted/15 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                                <th className="px-5 py-3">Mã môn</th>
-                                <th className="px-4 py-3">Tên môn học</th>
-                                <th className="px-4 py-3 text-center">Nhóm</th>
-                                <th className="px-4 py-3 text-center">
-                                  Tín chỉ
-                                </th>
-                                <th className="px-4 py-3 text-center">
-                                  Điểm số
-                                </th>
-                                <th className="px-4 py-3 text-center">
-                                  Điểm chữ
-                                </th>
-                                <th className="px-5 py-3 text-right">
-                                  Ghi chú
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y">
-                              {semCourses.map((course) => (
-                                <tr
-                                  key={`${sem.maNamHocHocKy}-${course.monHocId}-${course.maMonHoc}`}
-                                  onClick={() =>
-                                    handleOpenCourseDetail(course, sem)
-                                  }
-                                  className="cursor-pointer transition-colors hover:bg-primary/5"
-                                >
-                                  <td className="px-5 py-3 font-mono text-xs font-bold text-primary">
-                                    <div className="flex items-center gap-1.5">
-                                      <span>{course.maMonHoc}</span>
-                                      {course.isNewUpdate && (
-                                        <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-sans text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                                          Mới
-                                        </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                  <td className="px-4 py-3 font-semibold text-foreground">
-                                    {course.tenMonHoc}
-                                  </td>
-                                  <td className="px-4 py-3 text-center font-mono text-xs text-muted-foreground">
-                                    {course.nhomTo || "--"}
-                                  </td>
-                                  <td className="px-4 py-3 text-center font-semibold">
-                                    {course.soTinChi}
-                                  </td>
-                                  <td className="px-4 py-3 text-center font-mono font-bold">
-                                    {formatNumericScore(
-                                      course.diemSo,
-                                      course.diemChu
-                                    )}
-                                  </td>
-                                  <td className="px-4 py-3 text-center">
-                                    <span
-                                      className={`inline-block min-w-10 rounded-lg px-2 py-0.5 text-xs font-bold ${getLetterBadgeStyle(
-                                        course.diemChu
-                                      )}`}
-                                    >
-                                      {course.diemChu || "--"}
-                                    </span>
-                                  </td>
-                                  <td className="px-5 py-3 text-right text-xs text-muted-foreground">
-                                    {course.ghiChu ||
-                                      (course.diemDat === "1" ? "Đạt" : "--")}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
-                      </div>
-                    )}
-                  </section>
-                );
-              })}
-
-              {/* 5. Điểm môn học khác & Chứng chỉ điều kiện */}
-              {filteredOtherCourses.length > 0 && (
-                <section className="overflow-hidden rounded-2xl border bg-card">
-                  <div className="flex items-center justify-between border-b bg-muted/30 px-5 py-3.5">
-                    <div className="flex items-center gap-2.5">
-                      <CheckCircle2 className="h-4 w-4 text-teal-500" />
-                      <h3 className="font-display text-base font-bold text-foreground">
-                        Điểm môn học khác & Chứng chỉ điều kiện (
-                        {filteredOtherCourses.length})
-                      </h3>
-                    </div>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead>
-                        <tr className="border-b bg-muted/15 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                          <th className="px-5 py-3">Học kỳ</th>
-                          <th className="px-4 py-3">Mã môn / CC</th>
-                          <th className="px-4 py-3">Tên môn học / Chứng chỉ</th>
-                          <th className="px-4 py-3 text-center">Kết quả</th>
-                          <th className="px-5 py-3 text-right">
-                            Cập nhật cuối
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {filteredOtherCourses.map((oth, idx) => (
-                          <tr
-                            key={`other-${oth.maHocKy}-${oth.maMonHoc}-${idx}`}
-                            onClick={() => handleOpenOtherCourseDetail(oth)}
-                            className="cursor-pointer transition-colors hover:bg-primary/5"
-                          >
-                            <td className="px-5 py-3 font-mono text-xs font-bold text-muted-foreground">
-                              {oth.maHocKy}
-                            </td>
-                            <td className="px-4 py-3 font-mono text-xs font-bold text-primary">
-                              {oth.maMonHoc}
-                            </td>
-                            <td className="px-4 py-3 font-semibold text-foreground">
-                              {oth.tenMonHoc && oth.tenMonHoc !== "--"
-                                ? oth.tenMonHoc
-                                : `Chứng chỉ / Điều kiện (${oth.maMonHoc})`}
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <span className="inline-block rounded-lg bg-teal-500/15 px-2.5 py-0.5 text-xs font-bold text-teal-600 dark:text-teal-400">
-                                {oth.ghiChu || "Đạt"}
-                              </span>
-                            </td>
-                            <td className="px-5 py-3 text-right text-xs text-muted-foreground">
-                              {oth.capNhatCuoi || "--"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              )}
-            </div>
-          )}
-        </>
+        renderTranscript()
       )}
 
-      {/* Read-Only Course Detail & Component Scores Modal */}
       <CourseDetailModal
         course={selectedCourse}
         allAttempts={
@@ -905,11 +977,10 @@ export default function AcademicResultsPage() {
       />
 
       <MyBkConnectModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        connectedStudentId={studentId}
-        lastSyncedAt={lastSyncedAt}
-        onSuccess={loadTranscriptSWR}
+        open={connectOpen}
+        onClose={() => setConnectOpen(false)}
+        connectedStudentId={data?.studentId ?? null}
+        lastSyncedAt={data?.lastSyncedAt ?? null}
       />
     </div>
   );

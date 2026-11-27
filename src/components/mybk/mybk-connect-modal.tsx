@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { Modal, useRetained } from "@/components/ui/modal";
 import {
   CheckCircle2,
   KeyRound,
@@ -27,7 +27,6 @@ export function MyBkConnectModal({
   lastSyncedAt,
   onSuccess,
 }: MyBkConnectModalProps) {
-  const [mounted, setMounted] = useState(false);
   const [tab, setTab] = useState<"sso" | "token">("sso");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -35,11 +34,6 @@ export function MyBkConnectModal({
   const [studentId, setStudentId] = useState(connectedStudentId || "");
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!open || !mounted) return null;
 
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,14 +100,7 @@ export function MyBkConnectModal({
   };
 
   const modalContent = (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-2xl border bg-card text-card-foreground shadow-2xl"
-      >
+    <Modal open={open} onClose={onClose} panelClassName="max-w-md overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between border-b px-5 py-4">
           <div className="flex items-center gap-2.5">
@@ -288,9 +275,8 @@ export function MyBkConnectModal({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </Modal>
   );
 
-  return createPortal(modalContent, document.body);
+  return modalContent;
 }

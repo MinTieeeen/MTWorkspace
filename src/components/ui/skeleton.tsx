@@ -87,8 +87,8 @@ export function AcademicResultsSkeleton() {
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-2 divide-y sm:grid-cols-4 sm:divide-x sm:divide-y-0">
-          {Array.from({ length: 4 }).map((_, i) => (
+        <div className="grid grid-cols-2 divide-y sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="px-6 py-4 space-y-2">
               <Skeleton className="h-3.5 w-28 rounded-md" />
               <Skeleton className="h-7 w-16 rounded-lg" />
@@ -154,7 +154,7 @@ export function AcademicResultsSkeleton() {
 
 export function MailWorkspaceSkeleton() {
   return (
-    <div className="mx-auto flex h-[calc(100vh-7.5rem)] max-w-7xl flex-col gap-4">
+    <div className="mx-auto -mb-24 flex h-[calc(100vh-6.5rem)] max-w-7xl flex-col gap-4">
       {/* Top Toolbar Skeleton */}
       <div className="flex items-center justify-between rounded-2xl border bg-card px-5 py-3">
         <div className="flex items-center gap-2.5">
@@ -296,64 +296,58 @@ export function TimetableSkeleton() {
 export function ExamScheduleSkeleton() {
   return (
     <div className="mx-auto max-w-6xl space-y-4">
-      {/* Top Toolbar Skeleton */}
-      <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border bg-card px-4 py-2.5">
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-9 w-56 rounded-xl" />
-          <Skeleton className="h-9 w-40 rounded-xl" />
+      {/* Điều khiển: học kỳ + lọc loại kỳ | xuất lịch + làm mới */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-card px-4 py-3">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-9 w-56 rounded-lg" />
+          <Skeleton className="h-9 w-64 rounded-xl" />
         </div>
         <div className="flex items-center gap-2">
-          <Skeleton className="h-9 w-44 rounded-xl" />
-          <Skeleton className="h-9 w-14 rounded-xl" />
-          <Skeleton className="h-9 w-9 rounded-xl" />
+          <Skeleton className="h-9 w-28 rounded-lg" />
+          <Skeleton className="h-9 w-9 rounded-lg" />
         </div>
       </div>
 
-      {/* Asymmetric Distributed Bento Skeleton (Left 5/12, Right 7/12) */}
       <div className="grid items-start gap-4 lg:grid-cols-12">
-        {/* Left Bento Stack */}
-        <div className="space-y-3 lg:col-span-5">
-          {/* Compact Countdown Bar */}
-          <div className="flex items-center justify-between rounded-2xl border bg-card px-4 py-3">
-            <Skeleton className="h-6 w-28 rounded-lg" />
-            <div className="flex items-center gap-1.5">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <Skeleton key={i} className="h-7 w-11 rounded-lg" />
-              ))}
-            </div>
+        {/* Thẻ ca thi tiếp theo: nhãn, tên môn, đếm ngược, 3 hàng thông tin */}
+        <div className="space-y-5 rounded-2xl border bg-card p-5 lg:col-span-5">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-4 w-28 rounded-md" />
+            <Skeleton className="h-5 w-32 rounded-md" />
           </div>
-
-          {/* Main Subject Card */}
-          <div className="space-y-3 rounded-2xl border bg-card p-5">
-            <div className="flex items-center justify-between">
-              <Skeleton className="h-5 w-36 rounded-lg" />
-              <Skeleton className="h-5 w-24 rounded-lg" />
-            </div>
-            <Skeleton className="h-7 w-4/5 rounded-lg" />
-            <Skeleton className="h-4 w-full rounded-md" />
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-4/5 rounded-lg" />
+            <Skeleton className="h-3.5 w-40 rounded-md" />
           </div>
-
-          {/* 4 Mini Attribute Tiles */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-4 gap-2">
             {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="space-y-2 rounded-2xl border bg-card p-4">
-                <Skeleton className="h-3.5 w-20 rounded-md" />
-                <Skeleton className="h-5 w-28 rounded-md" />
-                <Skeleton className="h-3.5 w-24 rounded-md" />
-              </div>
+              <Skeleton key={i} className="h-16 rounded-xl" />
+            ))}
+          </div>
+          <div className="space-y-2 rounded-xl border p-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-5 w-full rounded-md" />
             ))}
           </div>
         </div>
 
-        {/* Right Wider List */}
-        <div className="flex flex-col rounded-2xl border bg-card lg:col-span-7">
-          <div className="flex items-center justify-between border-b px-4 py-3">
-            <Skeleton className="h-4 w-40 rounded-md" />
-            <Skeleton className="h-5 w-16 rounded-lg" />
+        {/* Danh sách ca thi */}
+        <div className="overflow-hidden rounded-2xl border bg-card lg:col-span-7">
+          <div className="border-b bg-muted/25 px-5 py-3">
+            <Skeleton className="h-4 w-24 rounded-md" />
           </div>
-          <div className="space-y-2.5 p-3.5">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-18 w-full rounded-xl" />
+          <div className="divide-y">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="grid grid-cols-[3.5rem_1fr_auto] gap-3 px-5 py-3.5">
+                <Skeleton className="h-14 rounded-xl" />
+                <div className="space-y-2">
+                  <Skeleton className="h-3 w-16 rounded-md" />
+                  <Skeleton className="h-4 w-3/4 rounded-md" />
+                  <Skeleton className="h-3 w-40 rounded-md" />
+                  <Skeleton className="h-3 w-24 rounded-md" />
+                </div>
+                <Skeleton className="h-5 w-16 rounded-md" />
+              </div>
             ))}
           </div>
         </div>

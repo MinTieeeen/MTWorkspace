@@ -1,327 +1,492 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
   CalendarClock,
   CheckSquare,
+  Clock,
   FileCheck2,
   MapPin,
   StickyNote,
   User,
 } from "lucide-react";
+import { ThesisMeetingReminder } from "@/components/dashboard/thesis-meeting-reminder";
 import { GmailInboxWidget } from "@/components/dashboard/gmail-inbox-widget";
+import { MyBkConnectModal } from "@/components/mybk/mybk-connect-modal";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardHeader } from "@/components/ui/card";
 import { DashboardSkeleton } from "@/components/ui/skeleton";
+import { ConnectPrompt, ErrorState, StaleBanner } from "@/components/ui/state";
+import {
+  DAY_SHORT,
+  calendarDaysUntil,
+  formatDateVi,
+  getCurrentIsoWeek,
+  getDateForDayInWeek,
+  getTodayBkDayOfWeek,
+  relativeDayLabel,
+  toVnMs,
+  padTime,
+} from "@/lib/format";
+import { isScheduledItem } from "@/lib/ics";
+import { buildSubjectColorMap } from "@/lib/subject-colors";
+import {
+  useMybkResource,
+  type ResourcePayload,
+  type ResourceState,
+} from "@/lib/use-mybk-resource";
 import type { NormalizedTimetableItem } from "@/lib/mybk-timetable";
 import type { NormalizedExamItem } from "@/lib/mybk-exams";
+import { cn } from "@/lib/utils";
 
-const DAY_NAMES: Record<number, string> = {
-  2: "Thứ 2",
-  3: "Thứ 3",
-  4: "Thứ 4",
-  5: "Thứ 5",
-  6: "Thứ 6",
-  7: "Thứ 7",
-  8: "CN",
-};
+type TimetablePayload = ResourcePayload & { items?: NormalizedTimetableItem[] };
+type ExamsPayload = ResourcePayload & { items?: NormalizedExamItem[] };
 
-function getCurrentIsoWeekClient(now = new Date()): number {
-  const d = new Date(
-    Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+const MAX_EXAMS = 3;
+
+interface ClassSession {
+  item: NormalizedTimetableItem;
+  dateIso: string;
+  startMs: number;
+  endMs: number;
+}
+
+interface DayGroup {
+  dayOfWeek: number;
+  dateIso: string;
+  sessions: ClassSession[];
+}
+
+/** Nhãn nhóm ngày: Hôm nay · Thứ 5 (26/11) / Ngày mai · ... / Thứ 7 (28/11) */
+function groupLabel(g: DayGroup, now: number): string {
+  const days = calendarDaysUntil(g.dateIso, new Date(now));
+  const base = `${DAY_SHORT[g.dayOfWeek]} (${formatDateVi(g.dateIso).short})`;
+  if (days === 0) return `Hôm nay · ${base}`;
+  if (days === 1) return `Ngày mai · ${base}`;
+  return base;
+}
+
+/** Hiển thị trạng thái tải thay cho nội dung card (chưa kết nối, hết hạn, lỗi) */
+function ResourceFallback({
+  res,
+  onConnect,
+  what,
+}: {
+  res: ResourceState<ResourcePayload>;
+  onConnect: () => void;
+  what: string;
+}) {
+  const inner = "rounded-none border-0 py-10";
+  if (res.status === "not-connected") {
+    return (
+      <ConnectPrompt
+        className={inner}
+        title="Chưa kết nối myBK"
+        description={`Kết nối tài khoản để xem ${what}.`}
+        actionLabel="Kết nối myBK"
+        onConnect={onConnect}
+      />
+    );
+  }
+  if (res.status === "sso-expired") {
+    return (
+      <ConnectPrompt
+        expired
+        className={inner}
+        title="Phiên đăng nhập myBK đã hết hạn"
+        description="Đăng nhập lại để cập nhật dữ liệu mới."
+        actionLabel="Đăng nhập lại"
+        onConnect={onConnect}
+      />
+    );
+  }
+  return (
+    <ErrorState
+      className={inner}
+      title={`Không tải được ${what}`}
+      message={res.error ?? undefined}
+      onRetry={res.retry}
+    />
   );
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
 }
 
-function formatExamShortDate(iso: string): string {
-  if (!iso || !iso.includes("-")) return iso || "--";
-  const [, m, d] = iso.split("-");
-  return `${d}/${m}`;
-}
+const isFallbackStatus = (s: string) =>
+  s === "not-connected" || s === "sso-expired" || s === "error";
 
 export default function HomePage() {
-  const [currentWeekNum, setCurrentWeekNum] = useState<number>(48);
-  const [weekSessions, setWeekSessions] = useState<NormalizedTimetableItem[]>(
-    []
-  );
-  const [upcomingExams, setUpcomingExams] = useState<NormalizedExamItem[]>([]);
-  const [ready, setReady] = useState(false);
-
-  const loadDashboardData = async () => {
-    try {
-      const [tkbRes, examRes] = await Promise.all([
-        fetch("/api/mybk/timetable", { cache: "no-store" }).catch(() => null),
-        fetch("/api/mybk/exams", { cache: "no-store" }).catch(() => null),
-      ]);
-
-      if (tkbRes && tkbRes.ok) {
-        const tkbData = await tkbRes.json();
-        const items: NormalizedTimetableItem[] = tkbData.items || [];
-        const isoWk = getCurrentIsoWeekClient();
-        setCurrentWeekNum(isoWk);
-
-        const scheduled = items.filter(
-          (i) =>
-            i.dayOfWeek >= 2 &&
-            i.dayOfWeek <= 8 &&
-            i.startLesson > 0 &&
-            i.startTime !== "0:00" &&
-            i.startTime !== "00:00"
-        );
-        const activeInWeek = scheduled
-          .filter((i) => i.activeWeeks.includes(isoWk))
-          .sort((a, b) =>
-            a.dayOfWeek !== b.dayOfWeek
-              ? a.dayOfWeek - b.dayOfWeek
-              : a.startLesson - b.startLesson
-          );
-
-        setWeekSessions(activeInWeek);
-      }
-
-      if (examRes && examRes.ok) {
-        const examData = await examRes.json();
-        const exams: NormalizedExamItem[] = examData.items || [];
-        const nowMs = Date.now();
-        const upcoming = exams
-          .filter((e) => {
-            const dt = new Date(`${e.examDate}T${e.endTime}:00+07:00`);
-            return !Number.isNaN(dt.getTime()) && dt.getTime() >= nowMs;
-          })
-          .sort((a, b) => a.examDate.localeCompare(b.examDate));
-
-        setUpcomingExams(upcoming);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setReady(true);
-    }
-  };
+  const timetable = useMybkResource<TimetablePayload>({
+    url: "/api/mybk/timetable",
+    revalidate: false,
+    isEmpty: (d) => !d.items || d.items.length === 0,
+  });
+  const exams = useMybkResource<ExamsPayload>({
+    url: "/api/mybk/exams",
+    revalidate: false,
+    isEmpty: (d) => !d.items || d.items.length === 0,
+  });
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
-    loadDashboardData();
-    const onUpdate = () => loadDashboardData();
-    window.addEventListener("mt-mybk-updated", onUpdate);
-    return () => window.removeEventListener("mt-mybk-updated", onUpdate);
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
   }, []);
 
-  if (!ready) return <DashboardSkeleton />;
+  // Lịch học từ hôm nay đến hết tuần, gom theo ngày
+  const { groups, weekNum, weekTotal } = useMemo(() => {
+    const empty = { groups: [] as DayGroup[], weekNum: 0, weekTotal: 0 };
+    if (now === null) return empty;
+    const week = getCurrentIsoWeek(new Date(now));
+    const todayDow = getTodayBkDayOfWeek(new Date(now));
+    const byDay = new Map<number, DayGroup>();
+    let total = 0;
+
+    const items = (timetable.data?.items ?? [])
+      .filter((i) => isScheduledItem(i) && i.activeWeeks.includes(week))
+      .sort((a, b) =>
+        a.dayOfWeek !== b.dayOfWeek
+          ? a.dayOfWeek - b.dayOfWeek
+          : a.startLesson - b.startLesson
+      );
+
+    for (const item of items) {
+      total += 1;
+      if (item.dayOfWeek < todayDow) continue;
+      const { iso } = getDateForDayInWeek(item.calendarYear, week, item.dayOfWeek);
+      const group =
+        byDay.get(item.dayOfWeek) ??
+        { dayOfWeek: item.dayOfWeek, dateIso: iso, sessions: [] };
+      group.sessions.push({
+        item,
+        dateIso: iso,
+        startMs: toVnMs(iso, item.startTime),
+        endMs: toVnMs(iso, item.endTime),
+      });
+      byDay.set(item.dayOfWeek, group);
+    }
+    return { groups: Array.from(byDay.values()), weekNum: week, weekTotal: total };
+  }, [timetable.data, now]);
+
+  const colorMap = useMemo(
+    () =>
+      buildSubjectColorMap(
+        (timetable.data?.items ?? []).map((i) => i.subjectCode)
+      ),
+    [timetable.data]
+  );
+
+  // Ca thi chưa kết thúc, gần nhất trước
+  const upcomingExams = useMemo(() => {
+    if (now === null) return [];
+    return (exams.data?.items ?? [])
+      .filter((e) => toVnMs(e.examDate, e.endTime) >= now)
+      .sort(
+        (a, b) =>
+          toVnMs(a.examDate, a.startTime) - toVnMs(b.examDate, b.startTime)
+      );
+  }, [exams.data, now]);
+
+  if (
+    now === null ||
+    (timetable.status === "loading" && exams.status === "loading")
+  ) {
+    return <DashboardSkeleton />;
+  }
+
+  const stale = timetable.isStale || exams.isStale;
+  // Buổi học kế tiếp chưa diễn ra: đánh dấu "Tiếp theo"
+  const nextSession = groups
+    .flatMap((g) => g.sessions)
+    .find((s) => s.startMs > now);
 
   return (
-    <div className="mx-auto max-w-6xl">
-      {/* Main Workspace Grid (Top summary stat cards removed per user request) */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left & Center Column (2/3) */}
-        <div className="space-y-6 lg:col-span-2">
-          {/* Current Week's Schedule */}
-          <section className="group rounded-2xl border bg-card transition-colors duration-200 hover:border-sky-500/40">
-            <div className="flex items-center justify-between border-b px-5 py-3.5">
-              <div className="flex items-center gap-2.5 text-base font-bold">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
-                  <CalendarClock className="h-[18px] w-[18px] icon-anim-tick" />
-                </span>
-                <span className="font-display">
-                  Lịch học Tuần {currentWeekNum}
-                </span>
-              </div>
+    <div className="mx-auto max-w-6xl space-y-5">
+      {stale && (
+        <StaleBanner
+          lastSyncedAt={timetable.lastSyncedAt ?? exams.lastSyncedAt}
+          message="Đang hiển thị dữ liệu đã lưu, chưa cập nhật được từ myBK"
+          refreshing={timetable.refreshing || exams.refreshing}
+          onRefresh={() => {
+            timetable.refresh(true);
+            exams.refresh(true);
+          }}
+        />
+      )}
+
+      <div className="grid items-start gap-5 lg:grid-cols-12">
+        {/* ===== Cột trái: lịch học ===== */}
+        <Card className="lg:col-span-7">
+          <CardHeader
+            icon={<CalendarClock />}
+            title={weekNum ? `Lịch học · Tuần ${weekNum}` : "Lịch học"}
+            action={
               <Link
                 href="/timetable"
-                className="inline-flex items-center gap-1 rounded-lg bg-sky-500/10 px-2.5 py-1 text-xs font-semibold text-sky-600 transition-colors hover:bg-sky-500/20 dark:text-sky-400"
+                className="inline-flex items-center gap-1 text-[13px] font-medium text-primary hover:underline"
               >
-                <span>Xem toàn bộ TKB</span>
+                Thời khóa biểu
                 <ArrowRight className="h-3.5 w-3.5" />
               </Link>
+            }
+          />
+
+          {isFallbackStatus(timetable.status) ? (
+            <ResourceFallback
+              res={timetable as ResourceState<ResourcePayload>}
+              onConnect={() => setConnectOpen(true)}
+              what="thời khóa biểu"
+            />
+          ) : groups.length === 0 ? (
+            <div className="px-5 py-12 text-center">
+              <p className="font-display text-sm font-semibold text-foreground">
+                {weekTotal > 0
+                  ? "Tuần này đã hết lịch học"
+                  : "Tuần này không có buổi học cố định"}
+              </p>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                {weekTotal > 0
+                  ? `Bạn đã học ${weekTotal} buổi trong tuần.`
+                  : "Đồ án, sinh hoạt không xếp tiết sẽ không hiện ở đây."}
+              </p>
             </div>
-
-            {weekSessions.length === 0 ? (
-              <div className="flex h-48 flex-col items-center justify-center gap-3 p-6">
-                <span className="text-sm font-medium text-muted-foreground">
-                  Không có buổi học cố định trong tuần này
-                </span>
-              </div>
-            ) : (
-              <div className="divide-y">
-                {weekSessions.slice(0, 5).map((item) => (
-                  <Link
-                    key={item.scheduleId}
-                    href="/timetable"
-                    className="flex items-center justify-between gap-4 px-5 py-3.5 transition-colors hover:bg-muted/30"
-                  >
-                    <div className="flex items-center gap-3.5 min-w-0">
-                      <div className="flex w-24 shrink-0 flex-col items-center justify-center rounded-xl border bg-sky-500/10 px-2.5 py-1.5 text-center">
-                        <span className="font-heading text-xs font-bold text-sky-600 dark:text-sky-400">
-                          {DAY_NAMES[item.dayOfWeek] || "Lịch"}
-                        </span>
-                        <span className="mt-0.5 font-mono text-[11px] font-semibold text-foreground">
-                          {item.startTime}–{item.endTime}
-                        </span>
-                      </div>
-
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-bold text-primary">
-                            {item.subjectCode}
-                          </span>
-                          <p className="truncate font-heading text-sm font-bold text-foreground">
-                            {item.subjectNameVi}
-                          </p>
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                          <span className="inline-flex items-center gap-1 font-mono font-semibold text-foreground/90">
-                            <MapPin className="h-3 w-3 text-emerald-500" />
-                            {item.roomCode || "--"}
-                          </span>
-                          {item.employeeName && (
-                            <span className="inline-flex items-center gap-1 truncate">
-                              <User className="h-3 w-3 text-sky-500" />
-                              {item.employeeName}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <span className="shrink-0 rounded-lg border bg-background px-2.5 py-1 font-mono text-xs font-semibold text-muted-foreground">
-                      T{item.startLesson}–
-                      {item.startLesson + item.numOfLesson - 1}
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* Upcoming Exams Countdown Section */}
-          <section className="group rounded-2xl border bg-card transition-colors duration-200 hover:border-amber-500/40">
-            <div className="flex items-center justify-between border-b px-5 py-3.5">
-              <div className="flex items-center gap-2.5 text-base font-bold">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                  <FileCheck2 className="h-[18px] w-[18px] icon-anim-slide" />
-                </span>
-                <span className="font-display">Đếm ngược Lịch thi</span>
-              </div>
-              <Link
-                href="/exams"
-                className="inline-flex items-center gap-1 rounded-lg bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-600 transition-colors hover:bg-amber-500/20 dark:text-amber-400"
-              >
-                <span>Xem chi tiết</span>
-                <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
-            </div>
-
-            {upcomingExams.length === 0 ? (
-              <div className="flex h-44 flex-col items-center justify-center gap-2 p-6 text-center">
-                <span className="text-sm font-medium text-muted-foreground">
-                  Không có ca thi nào sắp tới
-                </span>
-              </div>
-            ) : (
-              <div className="divide-y">
-                {upcomingExams.slice(0, 4).map((exam) => {
-                  const targetDt = new Date(
-                    `${exam.examDate}T${exam.startTime}:00+07:00`
-                  );
-                  const daysLeft = Math.max(
-                    0,
-                    Math.floor((targetDt.getTime() - Date.now()) / 86400000)
-                  );
-
-                  return (
-                    <Link
-                      key={exam.examId}
-                      href="/exams"
-                      className="flex items-center justify-between gap-4 px-5 py-3.5 transition-colors hover:bg-muted/30"
+          ) : (
+            <div className="mt-stagger divide-y">
+              {groups.map((g) => {
+                const isToday =
+                  calendarDaysUntil(g.dateIso, new Date(now)) === 0;
+                return (
+                  <section key={g.dayOfWeek}>
+                    <h3
+                      className={cn(
+                        "flex items-center gap-2 px-5 pb-1 pt-3 text-xs font-semibold",
+                        isToday ? "text-primary" : "text-muted-foreground"
+                      )}
                     >
-                      <div className="flex items-center gap-3.5 min-w-0">
-                        <div className="flex h-14 w-[4.5rem] shrink-0 flex-col items-center justify-center rounded-xl border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 text-center">
-                          <span className="text-[11px] font-bold leading-none text-amber-600 dark:text-amber-400">
-                            {DAY_NAMES[exam.dayOfWeek] || "Thi"}
+                      {isToday && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                      )}
+                      {groupLabel(g, now)}
+                    </h3>
+                    <ul className="pb-2">
+                      {g.sessions.map((s) => {
+                        const live = s.startMs <= now && now < s.endMs;
+                        const done = s.endMs <= now;
+                        const isNext = s === nextSession;
+                        const color = colorMap.get(s.item.subjectCode);
+                        const room =
+                          s.item.roomCode && s.item.roomCode !== "------"
+                            ? s.item.roomCode
+                            : "";
+                        return (
+                          <li key={s.item.scheduleId}>
+                            <Link
+                              href="/timetable"
+                              className={cn(
+                                "grid grid-cols-[3.75rem_1fr_auto] items-center gap-3 px-5 py-2.5 transition-colors hover:bg-muted/40",
+                                done && "opacity-55"
+                              )}
+                            >
+                              {/* Giờ: bắt đầu đậm, kết thúc mờ */}
+                              <div className="font-mono leading-tight">
+                                <p className="text-sm font-semibold text-foreground">
+                                  {padTime(s.item.startTime)}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {padTime(s.item.endTime)}
+                                </p>
+                              </div>
+
+                              {/* Môn + phòng/giảng viên, có vạch màu theo môn */}
+                              <div className="flex min-w-0 items-stretch gap-3">
+                                <span
+                                  className={cn(
+                                    "w-1 shrink-0 rounded-full",
+                                    color?.accent ?? "bg-primary"
+                                  )}
+                                />
+                                <div className="min-w-0">
+                                  <p className="truncate font-display text-sm font-semibold text-foreground">
+                                    {s.item.subjectNameVi}
+                                  </p>
+                                  <p className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+                                    <span className="inline-flex items-center gap-1">
+                                      <MapPin className="h-3 w-3" />
+                                      <span
+                                        className={cn(
+                                          "font-mono",
+                                          room && "font-semibold text-foreground"
+                                        )}
+                                      >
+                                        {room || "Chưa xếp phòng"}
+                                      </span>
+                                    </span>
+                                    {s.item.employeeName && (
+                                      <span className="inline-flex min-w-0 items-center gap-1">
+                                        <User className="h-3 w-3 shrink-0" />
+                                        <span className="truncate">
+                                          {s.item.employeeName}
+                                        </span>
+                                      </span>
+                                    )}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Trạng thái */}
+                              <div className="w-20 text-right">
+                                {live ? (
+                                  <Badge tone="success">Đang học</Badge>
+                                ) : isNext ? (
+                                  <Badge tone="primary">Tiếp theo</Badge>
+                                ) : done ? (
+                                  <Badge>Đã xong</Badge>
+                                ) : null}
+                              </div>
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+
+        {/* ===== Cột phải: lịch thi + hộp thư ===== */}
+        <div className="space-y-5 lg:col-span-5">
+          <Card>
+            <CardHeader
+              icon={<FileCheck2 />}
+              title="Lịch thi"
+              action={
+                <Link
+                  href="/exams"
+                  className="inline-flex items-center gap-1 text-[13px] font-medium text-primary hover:underline"
+                >
+                  {upcomingExams.length > MAX_EXAMS
+                    ? `Xem tất cả (${upcomingExams.length})`
+                    : "Chi tiết"}
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              }
+            />
+
+            {isFallbackStatus(exams.status) ? (
+              <ResourceFallback
+                res={exams as ResourceState<ResourcePayload>}
+                onConnect={() => setConnectOpen(true)}
+                what="lịch thi"
+              />
+            ) : upcomingExams.length === 0 ? (
+              <p className="px-5 py-10 text-center text-[13px] text-muted-foreground">
+                Không có ca thi nào sắp tới
+              </p>
+            ) : (
+              <ul className="mt-stagger divide-y">
+                {upcomingExams.slice(0, MAX_EXAMS).map((exam) => {
+                  const days = calendarDaysUntil(exam.examDate, new Date(now));
+                  const live =
+                    toVnMs(exam.examDate, exam.startTime) <= now;
+                  const soon = days <= 3;
+                  return (
+                    <li key={exam.examId}>
+                      <Link
+                        href="/exams"
+                        className="grid grid-cols-[3.5rem_1fr_auto] items-start gap-3 px-5 py-3.5 transition-colors hover:bg-muted/40"
+                      >
+                        {/* Khối ngày */}
+                        <div
+                          className={cn(
+                            "flex h-14 flex-col items-center justify-center rounded-xl border text-center",
+                            soon
+                              ? "border-warning/40 bg-warning/10"
+                              : "bg-muted/40"
+                          )}
+                        >
+                          <span className="text-xs font-medium text-muted-foreground">
+                            {DAY_SHORT[exam.dayOfWeek] ?? "Thi"}
                           </span>
-                          <span className="mt-1 font-mono text-sm font-extrabold leading-none text-foreground">
-                            {formatExamShortDate(exam.examDate)}
+                          <span className="font-mono text-sm font-semibold text-foreground">
+                            {formatDateVi(exam.examDate).short}
                           </span>
                         </div>
 
+                        {/* Tên môn, giờ thi, phòng thi: mỗi thông tin một dòng */}
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="rounded bg-rose-500/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-rose-600 dark:text-rose-400">
-                              {exam.examType}
+                          <p className="text-xs font-medium text-warning-fg">
+                            {exam.examType === "CK" ? "Cuối kỳ" : "Giữa kỳ"}
+                          </p>
+                          <p className="line-clamp-2 font-display text-sm font-semibold leading-snug text-foreground">
+                            {exam.subjectName}
+                          </p>
+                          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Clock className="h-3 w-3 shrink-0" />
+                            <span className="font-mono text-foreground">
+                              {padTime(exam.startTime)}–{padTime(exam.endTime)}
                             </span>
-                            <span className="font-mono text-xs font-bold text-primary">
-                              {exam.subjectCode}
+                            <span>· {exam.durationMinutes} phút</span>
+                          </p>
+                          <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <MapPin className="h-3 w-3 shrink-0" />
+                            <span
+                              className={cn(
+                                "font-mono",
+                                exam.roomCode && "text-foreground"
+                              )}
+                            >
+                              {exam.roomCode || "Chưa xếp phòng"}
                             </span>
-                            <p className="truncate font-heading text-sm font-bold text-foreground">
-                              {exam.subjectName}
-                            </p>
-                          </div>
-                          <p className="mt-1 font-mono text-xs text-muted-foreground">
-                            {exam.startTime}–{exam.endTime} ({exam.durationMinutes}p) •{" "}
-                            <span className="font-semibold text-foreground/90">
-                              {exam.roomCode || "--"}
-                            </span>
-                            {exam.seatOrder !== null
-                              ? ` • STT ${exam.seatOrder}`
-                              : ""}
                           </p>
                         </div>
-                      </div>
 
-                      <span className="shrink-0 rounded-xl border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-mono text-xs font-bold text-amber-700 dark:text-amber-300">
-                        {daysLeft > 0 ? `Còn ${daysLeft} ngày` : "Hôm nay"}
-                      </span>
-                    </Link>
+                        {/* Đếm ngược */}
+                        <Badge tone={live ? "danger" : soon ? "warning" : "neutral"}>
+                          {live ? "Đang thi" : relativeDayLabel(days)}
+                        </Badge>
+                      </Link>
+                    </li>
                   );
                 })}
-              </div>
+              </ul>
             )}
-          </section>
+          </Card>
 
-          {/* Priority Tasks */}
-          <section className="group rounded-2xl border bg-card transition-colors duration-200 hover:border-teal-500/40">
-            <div className="flex items-center justify-between border-b px-5 py-3.5">
-              <div className="flex items-center gap-2.5 text-base font-bold">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-500/10 text-teal-600 dark:text-teal-400">
-                  <CheckSquare className="h-[18px] w-[18px] icon-anim-wiggle" />
-                </span>
-                <span className="font-display">Công việc</span>
-              </div>
-            </div>
+          <ThesisMeetingReminder />
 
-            <div className="flex h-44 flex-col items-center justify-center gap-3 p-6">
-              <span className="text-sm font-medium text-muted-foreground">
-                Chưa có công việc cần xử lý
-              </span>
-            </div>
-          </section>
-        </div>
-
-        {/* Right Column (1/3) */}
-        <div className="space-y-6">
-          {/* Live Gmail Quick Inbox Widget */}
           <GmailInboxWidget />
-
-          {/* Quick Notes */}
-          <section className="group rounded-2xl border bg-card transition-colors duration-200 hover:border-amber-500/40">
-            <div className="flex items-center justify-between border-b px-5 py-3.5">
-              <div className="flex items-center gap-2.5 text-base font-bold">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                  <StickyNote className="h-[18px] w-[18px] icon-anim-wiggle" />
-                </span>
-                <span className="font-display">Ghi chú</span>
-              </div>
-            </div>
-
-            <div className="flex h-44 flex-col items-center justify-center gap-3 p-6">
-              <span className="text-sm font-medium text-muted-foreground">
-                Chưa có ghi chú nhanh
-              </span>
-            </div>
-          </section>
         </div>
       </div>
+
+      {/* ===== Tính năng sắp có: gọn trong một dòng ===== */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {[
+          { icon: CheckSquare, title: "Công việc" },
+          { icon: StickyNote, title: "Ghi chú nhanh" },
+        ].map(({ icon: Icon, title }) => (
+          <div
+            key={title}
+            className="flex items-center gap-3 rounded-2xl border border-dashed px-5 py-3.5 text-muted-foreground"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
+              <Icon className="h-[18px] w-[18px]" />
+            </span>
+            <span className="text-sm font-medium">{title}</span>
+            <Badge className="ml-auto">Sắp có</Badge>
+          </div>
+        ))}
+      </div>
+
+      <MyBkConnectModal
+        open={connectOpen}
+        onClose={() => setConnectOpen(false)}
+        connectedStudentId={null}
+        lastSyncedAt={null}
+      />
     </div>
   );
 }

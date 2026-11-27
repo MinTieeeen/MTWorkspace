@@ -1,794 +1,645 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Calendar,
   CalendarPlus,
-  CheckCircle2,
+  ChevronDown,
   Clock,
-  Download,
   FileCheck2,
-  Hash,
   MapPin,
   PartyPopper,
   RefreshCw,
-  Timer,
-  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Collapse } from "@/components/ui/collapse";
+import { Select } from "@/components/ui/select";
+import { useRetained } from "@/components/ui/modal";
 import { ExamScheduleSkeleton } from "@/components/ui/skeleton";
+import {
+  ConnectPrompt,
+  EmptyState,
+  ErrorState,
+  StaleBanner,
+} from "@/components/ui/state";
+import { ExamCountdown } from "@/components/mybk/exam-countdown";
 import { ExamDetailModal } from "@/components/mybk/exam-detail-modal";
 import { ExamGoogleCalendarModal } from "@/components/mybk/exam-google-calendar-modal";
-import type { ExamPrepStatus, NormalizedExamItem } from "@/lib/mybk-exams";
+import { MyBkConnectModal } from "@/components/mybk/mybk-connect-modal";
+import type { NormalizedExamItem } from "@/lib/mybk-exams";
 import type { RawMyBkSemesterOption } from "@/lib/mybk-timetable";
+import {
+  DAY_FULL_LABELS,
+  DAY_SHORT,
+  calendarDaysUntil,
+  formatCampus,
+  formatDateVi,
+  getExamTimestampMs,
+  padTime,
+  relativeDayLabel,
+} from "@/lib/format";
+import { buildExamIcs, downloadIcs } from "@/lib/ics";
+import { useMybkResource, type ResourcePayload } from "@/lib/use-mybk-resource";
 
 type ExamTypeFilter = "ALL" | "CK" | "GK";
 
-interface ExamsApiResponse {
-  connected: boolean;
-  studentId: string | null;
-  hasAutoSso: boolean;
-  isStale: boolean;
-  lastSyncedAt: string | null;
-  currentSemesterCode: string;
-  selectedSemesterCode: string;
-  semesters: RawMyBkSemesterOption[];
-  items: NormalizedExamItem[];
+interface ExamsPayload extends ResourcePayload {
+  studentId?: string | null;
+  currentSemesterCode?: string;
+  selectedSemesterCode?: string;
+  semesters?: RawMyBkSemesterOption[];
+  items?: NormalizedExamItem[];
 }
 
-const DAY_LABELS: Record<number, string> = {
-  2: "Thứ 2",
-  3: "Thứ 3",
-  4: "Thứ 4",
-  5: "Thứ 5",
-  6: "Thứ 6",
-  7: "Thứ 7",
-  8: "CN",
-};
+const typeLabel = (t: string) => (t === "CK" ? "Cuối kỳ" : "Giữa kỳ");
 
-const DAY_FULL_LABELS: Record<number, string> = {
-  2: "Thứ Hai",
-  3: "Thứ Ba",
-  4: "Thứ Tư",
-  5: "Thứ Năm",
-  6: "Thứ Sáu",
-  7: "Thứ Bảy",
-  8: "Chủ Nhật",
-};
+/** Một dòng ca thi trong danh sách: ngày · môn · giờ + phòng · nhãn thời gian */
+function ExamRow({
+  exam,
+  nowMs,
+  isNext,
+  done,
+  onOpen,
+}: {
+  exam: NormalizedExamItem;
+  nowMs: number;
+  isNext: boolean;
+  done: boolean;
+  onOpen: () => void;
+}) {
+  const days = calendarDaysUntil(exam.examDate, new Date(nowMs));
+  const live =
+    !done && getExamTimestampMs(exam.examDate, exam.startTime) <= nowMs;
+  const soon = !done && days <= 3;
+  const date = formatDateVi(exam.examDate);
 
-function getExamTimestampMs(examDate: string, timeHHMM: string): number {
-  if (!examDate) return 0;
-  const cleanTime =
-    timeHHMM && timeHHMM.includes(":") ? timeHHMM : "07:00";
-  const dt = new Date(`${examDate}T${cleanTime}:00+07:00`);
-  return Number.isNaN(dt.getTime()) ? 0 : dt.getTime();
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={cn(
+        "grid w-full grid-cols-[3.5rem_1fr_auto] items-start gap-3 px-5 py-3.5 text-left transition-colors hover:bg-muted/40",
+        done && "opacity-60 hover:opacity-100"
+      )}
+    >
+      {/* Khối ngày */}
+      <div
+        className={cn(
+          "flex h-14 flex-col items-center justify-center rounded-xl border text-center",
+          soon ? "border-warning/40 bg-warning/10" : "bg-muted/40"
+        )}
+      >
+        <span className="text-xs font-medium text-muted-foreground">
+          {DAY_SHORT[exam.dayOfWeek] ?? "Thi"}
+        </span>
+        <span className="font-mono text-sm font-semibold text-foreground">
+          {date.short}
+        </span>
+      </div>
+
+      {/* Môn, giờ thi, phòng thi: mỗi thông tin một dòng */}
+      <div className="min-w-0">
+        <p
+          className={cn(
+            "text-xs font-medium",
+            exam.examType === "CK" ? "text-danger-fg" : "text-warning-fg"
+          )}
+        >
+          {typeLabel(exam.examType)}
+        </p>
+        <p className="line-clamp-2 font-display text-sm font-semibold leading-snug text-foreground">
+          {exam.subjectName}
+        </p>
+        <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Clock className="h-3 w-3 shrink-0" />
+          <span className="font-mono text-foreground">
+            {padTime(exam.startTime)}–{padTime(exam.endTime)}
+          </span>
+          <span>· {exam.durationMinutes} phút</span>
+        </p>
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <MapPin className="h-3 w-3 shrink-0" />
+          <span className={cn("font-mono", exam.roomCode && "text-foreground")}>
+            {exam.roomCode || "Chưa xếp phòng"}
+          </span>
+        </p>
+      </div>
+
+      {/* Nhãn trạng thái */}
+      {done ? (
+        <Badge tone="success">Đã thi</Badge>
+      ) : live ? (
+        <Badge tone="danger">Đang thi</Badge>
+      ) : isNext ? (
+        <Badge tone="primary">Tiếp theo</Badge>
+      ) : (
+        <Badge tone={soon ? "warning" : "neutral"}>
+          {relativeDayLabel(days)}
+        </Badge>
+      )}
+    </button>
+  );
 }
 
-function formatDateVi(isoDate: string): {
-  dd: string;
-  mm: string;
-  yyyy: string;
-  short: string;
-  full: string;
-} {
-  if (!isoDate || !isoDate.includes("-")) {
-    return {
-      dd: "--",
-      mm: "--",
-      yyyy: "----",
-      short: "--/--",
-      full: isoDate || "--",
-    };
-  }
-  const [yyyy, mm, dd] = isoDate.split("-");
-  return {
-    dd,
-    mm,
-    yyyy,
-    short: `${dd}/${mm}`,
-    full: `${dd}/${mm}/${yyyy}`,
-  };
-}
-
-function formatCampusShort(campusCode: string | null): string {
-  if (!campusCode) return "ĐHBK";
-  if (campusCode.includes("CS1")) return "Cơ sở 1 — Lý Thường Kiệt";
-  if (campusCode.includes("CS2")) return "Cơ sở 2 — Dĩ An";
-  return campusCode;
-}
-
-function computeCountdownParts(targetMs: number, nowMs: number) {
-  const diff = Math.max(0, targetMs - nowMs);
-  const totalSeconds = Math.floor(diff / 1000);
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return { diff, days, hours, minutes, seconds };
-}
-
-function buildExamIcsContent(
-  items: NormalizedExamItem[],
-  semesterCode: string
-): string {
-  const lines: string[] = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//MTWorkspace//HCMUT myBK Exam Schedule//VI",
-    "CALSCALE:GREGORIAN",
-    "METHOD:PUBLISH",
-    `X-WR-CALNAME:Lịch thi Bách Khoa HK ${semesterCode}`,
-    "X-WR-TIMEZONE:Asia/Ho_Chi_Minh",
-  ];
-
-  const nowStamp =
-    new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
-
-  for (const item of items) {
-    if (!item.examDate) continue;
-    const cleanDate = item.examDate.replace(/-/g, "");
-    const startHHMM = item.startTime.replace(":", "").padStart(4, "0");
-    const endHHMM = item.endTime.replace(":", "").padStart(4, "0");
-    const typeLabel = item.examType === "GK" ? "Thi Giữa kỳ" : "Thi Cuối kỳ";
-    const roomPart = item.roomCode || "Chưa xếp phòng";
-    const location = `${roomPart} (${formatCampusShort(item.campusCode)})`;
-
-    const desc = [
-      `Kỳ thi: ${typeLabel} (${item.semesterYearName})`,
-      `Môn thi: ${item.subjectCode} - ${item.subjectName} (${item.numOfCredits} TC)`,
-      item.seatOrder ? `STT phòng thi: ${item.seatOrder}` : "",
-      `Thời lượng: ${item.durationMinutes} phút (${item.startTime} - ${item.endTime})`,
-    ]
-      .filter(Boolean)
-      .join("\\n");
-
-    const uid = `mtworkspace-exam-${semesterCode}-${item.examId}@mybk.hcmut.edu.vn`;
-
-    lines.push(
-      "BEGIN:VEVENT",
-      `UID:${uid}`,
-      `DTSTAMP:${nowStamp}`,
-      `DTSTART;TZID=Asia/Ho_Chi_Minh:${cleanDate}T${startHHMM}00`,
-      `DTEND;TZID=Asia/Ho_Chi_Minh:${cleanDate}T${endHHMM}00`,
-      `SUMMARY:[${typeLabel}] ${item.subjectCode} - ${item.subjectName}`,
-      `LOCATION:${location}`,
-      `DESCRIPTION:${desc}`,
-      "BEGIN:VALARM",
-      "TRIGGER:-PT60M",
-      "ACTION:DISPLAY",
-      "DESCRIPTION:Chuẩn bị vào phòng thi",
-      "END:VALARM",
-      "END:VEVENT"
-    );
-  }
-
-  lines.push("END:VCALENDAR");
-  return lines.join("\r\n");
+/** Tiêu đề nhóm có thể thu gọn: "Sắp thi (3)" / "Đã thi (5)" */
+function GroupHeader({
+  title,
+  count,
+  open,
+  onToggle,
+}: {
+  title: string;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className="flex w-full items-center justify-between border-b bg-muted/25 px-5 py-2.5 text-left transition-colors hover:bg-muted/40"
+    >
+      <span className="font-display text-[13px] font-semibold text-foreground">
+        {title}
+        <span className="ml-1.5 font-mono font-medium text-muted-foreground">
+          ({count})
+        </span>
+      </span>
+      <ChevronDown
+        className={cn(
+          "h-4 w-4 text-muted-foreground transition-transform duration-200",
+          !open && "-rotate-90"
+        )}
+      />
+    </button>
+  );
 }
 
 export default function ExamSchedulePage() {
-  const [initialLoaded, setInitialLoaded] = useState(false);
-  const [data, setData] = useState<ExamsApiResponse | null>(null);
-  const [selectedSemester, setSelectedSemester] = useState<string>("20261");
-  const [examTypeFilter, setExamTypeFilter] = useState<ExamTypeFilter>("ALL");
-  const [revalidating, setRevalidating] = useState(false);
-  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [semester, setSemester] = useState<string | null>(null);
+  const exams = useMybkResource<ExamsPayload>({
+    url: `/api/mybk/exams${semester ? `?semesterYear=${semester}` : ""}`,
+    isEmpty: (d) => !d.items || d.items.length === 0,
+  });
+  // Giữ dữ liệu cũ trong lúc đổi học kỳ để giao diện không nháy trắng
+  const data = useRetained(exams.data);
 
-  // Modals
+  const [typeFilter, setTypeFilter] = useState<ExamTypeFilter>("ALL");
+  const [showDone, setShowDone] = useState(false);
+  const [showUpcoming, setShowUpcoming] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [gcalOpen, setGcalOpen] = useState(false);
   const [activeExam, setActiveExam] = useState<NormalizedExamItem | null>(null);
-  const [gcalModalOpen, setGcalModalOpen] = useState(false);
+  // Cập nhật mỗi 30 giây để chuyển ca thi từ "Sắp thi" sang "Đã thi" đúng lúc
+  const [nowMs, setNowMs] = useState<number | null>(null);
 
-  // Live 1-second ticker for countdown
   useEffect(() => {
-    const timer = setInterval(() => {
-      setNowMs(Date.now());
-    }, 1000);
-    return () => clearInterval(timer);
+    setNowMs(Date.now());
+    const t = setInterval(() => setNowMs(Date.now()), 30000);
+    return () => clearInterval(t);
   }, []);
 
-  const loadExams = useCallback(
-    async (
-      semCode?: string,
-      opts?: { revalidate?: boolean; force?: boolean }
-    ) => {
-      const params = new URLSearchParams();
-      if (semCode) params.set("semesterYear", semCode);
-      if (opts?.revalidate) params.set("revalidate", "1");
-      if (opts?.force) params.set("force", "1");
-
-      const res = await fetch(`/api/mybk/exams?${params.toString()}`);
-      if (!res.ok) return null;
-      const json = (await res.json()) as ExamsApiResponse;
-      setData(json);
-      setSelectedSemester(json.selectedSemesterCode);
-      return json;
-    },
-    []
+  const allItems = useMemo(
+    () =>
+      [...(data?.items ?? [])].sort(
+        (a, b) =>
+          getExamTimestampMs(a.examDate, a.startTime) -
+          getExamTimestampMs(b.examDate, b.startTime)
+      ),
+    [data]
   );
 
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const initial = await loadExams();
-        if (!active) return;
-        setInitialLoaded(true);
+  const counts = useMemo(
+    () => ({
+      ALL: allItems.length,
+      CK: allItems.filter((i) => i.examType === "CK").length,
+      GK: allItems.filter((i) => i.examType === "GK").length,
+    }),
+    [allItems]
+  );
 
-        setRevalidating(true);
-        await loadExams(initial?.selectedSemesterCode, { revalidate: true });
-      } finally {
-        if (active) {
-          setInitialLoaded(true);
-          setRevalidating(false);
-        }
-      }
-    })();
+  const filtered = useMemo(
+    () =>
+      typeFilter === "ALL"
+        ? allItems
+        : allItems.filter((i) => i.examType === typeFilter),
+    [allItems, typeFilter]
+  );
 
-    return () => {
-      active = false;
-    };
-  }, [loadExams]);
-
-  const allItems = useMemo(() => {
-    return [...(data?.items || [])].sort((a, b) => {
-      const aMs = getExamTimestampMs(a.examDate, a.startTime);
-      const bMs = getExamTimestampMs(b.examDate, b.startTime);
-      return aMs - bMs;
-    });
-  }, [data?.items]);
-
-  const filteredItems = useMemo(() => {
-    if (examTypeFilter === "ALL") return allItems;
-    return allItems.filter((item) => item.examType === examTypeFilter);
-  }, [allItems, examTypeFilter]);
-
-  // Split into upcoming vs completed:
-  // - If there is at least 1 upcoming exam: nextExam goes on the left, remaining (upcoming + completed) go on the right.
-  // - If ALL exams in the selected semester/filter are completed: nextExam is null (left shows Congratulations card), ALL completed exams go on the right!
-  const { nextExam, rightListExams, allFinished } = useMemo(() => {
-    if (filteredItems.length === 0) {
-      return {
-        nextExam: null,
-        rightListExams: [] as NormalizedExamItem[],
-        allFinished: false,
-      };
+  // Chia thành sắp thi (chưa kết thúc) và đã thi
+  const { upcoming, finished } = useMemo(() => {
+    const now = nowMs ?? 0;
+    const up: NormalizedExamItem[] = [];
+    const done: NormalizedExamItem[] = [];
+    for (const e of filtered) {
+      (getExamTimestampMs(e.examDate, e.endTime) >= now ? up : done).push(e);
     }
+    return { upcoming: up, finished: done.reverse() };
+  }, [filtered, nowMs]);
 
-    const upcoming = filteredItems.filter(
-      (item) => getExamTimestampMs(item.examDate, item.endTime) >= nowMs
-    );
-    const completed = filteredItems.filter(
-      (item) => getExamTimestampMs(item.examDate, item.endTime) < nowMs
-    );
+  const nextExam = upcoming[0] ?? null;
+  const selectedSemesterCode = data?.selectedSemesterCode ?? semester ?? "";
+  const semesterName =
+    allItems[0]?.semesterYearName ||
+    data?.semesters?.find((s) => String(s.code) === selectedSemesterCode)
+      ?.nameVi ||
+    (selectedSemesterCode ? `Học kỳ ${selectedSemesterCode}` : "");
 
-    if (upcoming.length > 0) {
-      const [firstUpcoming, ...restUpcoming] = upcoming;
-      return {
-        nextExam: firstUpcoming,
-        rightListExams: [...restUpcoming, ...completed],
-        allFinished: false,
-      };
-    }
+  const finishedCredits = useMemo(
+    () =>
+      Array.from(
+        new Map(finished.map((x) => [x.subjectCode, x.numOfCredits])).values()
+      ).reduce((a, b) => a + b, 0),
+    [finished]
+  );
 
-    return {
-      nextExam: null,
-      rightListExams: [...completed].reverse(),
-      allFinished: true,
-    };
-  }, [filteredItems, nowMs]);
-
-  const handleSemesterChange = async (nextSem: string) => {
-    setSelectedSemester(nextSem);
-    setRevalidating(true);
+  const handleRefresh = async () => {
+    setRefreshing(true);
     try {
-      await loadExams(nextSem, { revalidate: true });
+      const ok = await exams.refresh(true);
+      if (ok) toast.success("Đã cập nhật Lịch thi");
+      else toast.error("Không thể làm mới Lịch thi");
     } finally {
-      setRevalidating(false);
-    }
-  };
-
-  const handleManualRefresh = async () => {
-    setRevalidating(true);
-    try {
-      const res = await loadExams(selectedSemester, { force: true });
-      if (res) {
-        toast.success("Đã cập nhật Lịch thi");
-      } else {
-        toast.error("Không thể làm mới Lịch thi");
-      }
-    } finally {
-      setRevalidating(false);
+      setRefreshing(false);
     }
   };
 
   const handleDownloadIcs = () => {
     if (allItems.length === 0) return;
-    const ics = buildExamIcsContent(allItems, selectedSemester);
-    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `LichThi-BachKhoa-HK${selectedSemester}.ics`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadIcs(
+      buildExamIcs(allItems, selectedSemesterCode),
+      `LichThi-BachKhoa-HK${selectedSemesterCode}.ics`
+    );
     toast.success("Đã tải tệp Lịch thi (.ics)");
   };
 
-  const handlePrepUpdated = (
-    examId: number,
-    prepStatus: ExamPrepStatus,
-    personalNote?: string
-  ) => {
-    setData((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        items: prev.items.map((it) =>
-          it.examId === examId
-            ? {
-                ...it,
-                prepStatus,
-                ...(personalNote !== undefined ? { personalNote } : {}),
-              }
-            : it
-        ),
-      };
-    });
-    setActiveExam((prev) =>
-      prev && prev.examId === examId
-        ? {
-            ...prev,
-            prepStatus,
-            ...(personalNote !== undefined ? { personalNote } : {}),
-          }
-        : prev
-    );
-  };
-
-  if (!initialLoaded) {
+  // ===== Trạng thái thay cho toàn trang =====
+  if ((!data && exams.status === "loading") || nowMs === null) {
     return <ExamScheduleSkeleton />;
   }
 
-  const semesterName =
-    allItems[0]?.semesterYearName ||
-    data?.semesters?.find((s) => String(s.code) === selectedSemester)?.nameVi ||
-    `Học kỳ ${selectedSemester}`;
+  if (
+    exams.status === "not-connected" ||
+    exams.status === "sso-expired" ||
+    exams.status === "error"
+  ) {
+    const expired = exams.status === "sso-expired";
+    return (
+      <div className="mx-auto max-w-2xl pt-10">
+        {exams.status === "error" ? (
+          <ErrorState
+            title="Không tải được lịch thi"
+            message={exams.error ?? undefined}
+            onRetry={exams.retry}
+          />
+        ) : (
+          <ConnectPrompt
+            expired={expired}
+            title={
+              expired ? "Phiên đăng nhập myBK đã hết hạn" : "Chưa kết nối myBK"
+            }
+            description={
+              expired
+                ? "Đăng nhập lại để cập nhật lịch thi."
+                : "Kết nối tài khoản để xem lịch thi của bạn."
+            }
+            actionLabel={expired ? "Đăng nhập lại" : "Kết nối myBK"}
+            onConnect={() => setConnectOpen(true)}
+          />
+        )}
+        <MyBkConnectModal
+          open={connectOpen}
+          onClose={() => setConnectOpen(false)}
+          connectedStudentId={data?.studentId ?? null}
+          lastSyncedAt={data?.lastSyncedAt ?? null}
+        />
+      </div>
+    );
+  }
 
-  const gkCount = allItems.filter((i) => i.examType === "GK").length;
-  const ckCount = allItems.filter((i) => i.examType === "CK").length;
-
-  const countdown = nextExam
-    ? computeCountdownParts(
-        getExamTimestampMs(nextExam.examDate, nextExam.startTime),
-        nowMs
-      )
-    : null;
+  const switching = exams.status === "loading";
+  const hasItems = allItems.length > 0;
+  const nextDays = nextExam
+    ? calendarDaysUntil(nextExam.examDate, new Date(nowMs))
+    : 0;
+  const nextLive =
+    nextExam !== null &&
+    getExamTimestampMs(nextExam.examDate, nextExam.startTime) <= nowMs;
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
-      {/* Top Toolbar: Semester LOV + Exam Type LOV + Actions */}
-      <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border bg-card px-4 py-2.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={selectedSemester}
-            onChange={(e) => handleSemesterChange(e.target.value)}
-            className="h-9 rounded-xl border bg-background px-3 text-xs font-semibold text-foreground focus:border-primary focus:outline-none"
-          >
-            {(data?.semesters && data.semesters.length > 0
-              ? data.semesters
-              : [
-                  {
-                    id: 711,
-                    code: 20261,
-                    isCurrent: true,
-                    nameVi: "Học kỳ 1 Năm học 2026 - 2027",
-                    nameEn: "Academic year 2026-2027 - Semester 1",
-                  },
-                ]
-            ).map((sem) => (
-              <option key={sem.id} value={String(sem.code)}>
-                {sem.code} — {sem.nameVi}
-              </option>
-            ))}
-          </select>
+      {exams.isStale && (
+        <StaleBanner
+          lastSyncedAt={exams.lastSyncedAt}
+          message="Đang hiển thị lịch thi đã lưu, chưa cập nhật được từ myBK"
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+        />
+      )}
 
-          <select
-            value={examTypeFilter}
-            onChange={(e) =>
-              setExamTypeFilter(e.target.value as ExamTypeFilter)
-            }
-            className="h-9 rounded-xl border bg-background px-3 text-xs font-semibold text-foreground focus:border-primary focus:outline-none"
+      {/* ===== Điều khiển: học kỳ · lọc loại kỳ · xuất lịch · làm mới ===== */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-card px-4 py-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {data?.semesters && data.semesters.length > 0 && (
+            <Select
+              value={selectedSemesterCode}
+              onChange={(e) => setSemester(e.target.value)}
+              aria-label="Học kỳ"
+              className="max-w-[16rem] truncate"
+            >
+              {data.semesters.map((sem) => (
+                <option key={sem.id} value={String(sem.code)}>
+                  {sem.code} — {sem.nameVi}
+                </option>
+              ))}
+            </Select>
+          )}
+
+          <div
+            role="radiogroup"
+            aria-label="Loại kỳ thi"
+            className="inline-flex items-center gap-1 rounded-xl bg-muted/60 p-1"
           >
-            <option value="ALL">Tất cả đợt thi ({allItems.length})</option>
-            <option value="CK">Thi Cuối kỳ ({ckCount})</option>
-            <option value="GK">Thi Giữa kỳ ({gkCount})</option>
-          </select>
+            {(
+              [
+                ["ALL", "Tất cả"],
+                ["CK", "Cuối kỳ"],
+                ["GK", "Giữa kỳ"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={typeFilter === value}
+                onClick={() => setTypeFilter(value)}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors",
+                  typeFilter === value
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {label}
+                <span className="ml-1.5 font-mono text-xs font-medium opacity-70">
+                  {counts[value]}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setGcalModalOpen(true)}
-            className="group inline-flex h-9 items-center gap-2 rounded-xl bg-primary px-3.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+          <Button
+            onClick={() => setGcalOpen(true)}
+            disabled={!hasItems}
+            title="Thêm vào Google Calendar hoặc tải tệp .ics"
           >
-            <CalendarPlus className="h-3.5 w-3.5 transition-transform duration-200 group-hover:rotate-12" />
-            <span>Thêm vào Google Calendar</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleDownloadIcs}
-            title="Tải tệp .ics"
-            className="group inline-flex h-9 items-center gap-1.5 rounded-xl border bg-background px-3 text-xs font-semibold text-foreground transition-colors hover:bg-accent"
-          >
-            <Download className="h-3.5 w-3.5 text-primary transition-transform duration-200 group-hover:translate-y-0.5" />
-            <span className="hidden sm:inline">.ics</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleManualRefresh}
-            disabled={revalidating}
-            title="Làm mới Lịch thi"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+            <CalendarPlus className="h-4 w-4" />
+            Xuất lịch
+          </Button>
+          <Button
+            variant="secondary"
+            size="icon"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            aria-label="Làm mới từ myBK"
+            title="Làm mới từ myBK"
           >
             <RefreshCw
-              className={cn("h-3.5 w-3.5", revalidating && "animate-spin")}
+              className={cn(
+                "h-4 w-4",
+                (refreshing || exams.refreshing) && "animate-spin"
+              )}
             />
-          </button>
+          </Button>
         </div>
       </div>
 
-      {/* Empty Semester State */}
-      {filteredItems.length === 0 ? (
-        <div className="flex h-56 flex-col items-center justify-center gap-2 rounded-2xl border bg-card p-8 text-center">
-          <FileCheck2 className="h-8 w-8 text-muted-foreground/40" />
-          <p className="text-sm font-semibold text-foreground">
-            Chưa có dữ liệu lịch thi cho học kỳ này
-          </p>
-        </div>
-      ) : (
-        /* Asymmetric Split Layout: Left column is narrower (5/12) & fits content tightly; Right column is wider (7/12) */
-        <div className="grid items-start gap-4 lg:grid-cols-12">
-          {/* ==================== LEFT COLUMN (5/12): Distributed Bento Stack ==================== */}
-          <div className="space-y-3 lg:col-span-5">
-            {nextExam && countdown ? (
-              <>
-                {/* 1. Compact Countdown Bar on Top */}
-                <div className="flex items-center justify-between gap-3 rounded-2xl border bg-card px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <Timer className="h-4 w-4" />
-                    </span>
-                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Đếm ngược
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 font-mono">
-                    {[
-                      { v: countdown.days, u: "ng" },
-                      { v: countdown.hours, u: "g" },
-                      { v: countdown.minutes, u: "p" },
-                      { v: countdown.seconds, u: "s" },
-                    ].map((seg) => (
-                      <div
-                        key={seg.u}
-                        className="inline-flex items-baseline gap-0.5 rounded-lg border bg-muted/25 px-2 py-1"
-                      >
-                        <span className="text-sm font-extrabold text-primary">
-                          {String(seg.v).padStart(2, "0")}
-                        </span>
-                        <span className="text-[10px] font-semibold text-muted-foreground">
-                          {seg.u}
-                        </span>
+      <div
+        className={cn(
+          "transition-opacity",
+          switching && "pointer-events-none opacity-50"
+        )}
+      >
+        {!hasItems ? (
+          <EmptyState
+            icon={<FileCheck2 />}
+            title="Học kỳ này chưa có lịch thi"
+            description="Hãy chọn học kỳ khác hoặc làm mới từ myBK."
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleRefresh}
+                loading={refreshing}
+              >
+                Làm mới
+              </Button>
+            }
+          />
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={<FileCheck2 />}
+            title={`Không có ca thi ${
+              typeFilter === "CK" ? "cuối kỳ" : "giữa kỳ"
+            }`}
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setTypeFilter("ALL")}
+              >
+                Xem tất cả
+              </Button>
+            }
+          />
+        ) : (
+          <div className="grid items-start gap-4 lg:grid-cols-12">
+            {/* ===== Cột trái: ca thi tiếp theo (cố định khi cuộn) ===== */}
+            <div className="lg:sticky lg:top-0 lg:col-span-5">
+              {nextExam ? (
+                <section className="overflow-hidden rounded-2xl border bg-card">
+                  <button
+                    type="button"
+                    onClick={() => setActiveExam(nextExam)}
+                    className="block w-full space-y-5 p-5 text-left transition-colors hover:bg-muted/20"
+                  >
+                    {/* 1. Nhãn: loại kỳ + thời điểm */}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-primary">
+                        Ca thi tiếp theo
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <Badge
+                          tone={nextExam.examType === "CK" ? "danger" : "warning"}
+                        >
+                          {typeLabel(nextExam.examType)}
+                        </Badge>
+                        <Badge tone={nextLive ? "danger" : "neutral"}>
+                          {nextLive ? "Đang thi" : relativeDayLabel(nextDays)}
+                        </Badge>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </div>
 
-                {/* 2. Main Next Subject Header Card (Tight Fit) */}
-                <div
-                  onClick={() => setActiveExam(nextExam)}
-                  className="cursor-pointer rounded-2xl border bg-card p-5 transition-colors hover:border-primary/50"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className="rounded-lg bg-primary px-2.5 py-0.5 text-[11px] font-bold text-primary-foreground">
-                        Môn thi tiếp theo
-                      </span>
-                      <span
-                        className={cn(
-                          "rounded-lg px-2 py-0.5 font-mono text-[11px] font-bold",
-                          nextExam.examType === "CK"
-                            ? "bg-rose-500/15 text-rose-600 dark:text-rose-400"
-                            : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                    {/* 2. Tên môn + định danh */}
+                    <div>
+                      <h2 className="font-display text-xl font-bold leading-snug text-foreground">
+                        {nextExam.subjectName}
+                      </h2>
+                      <p className="mt-1 font-mono text-xs text-muted-foreground">
+                        {nextExam.subjectCode} · {nextExam.numOfCredits} TC
+                        {nextExam.classGroup && ` · Nhóm ${nextExam.classGroup}`}
+                      </p>
+                    </div>
+
+                    {/* 3. Đếm ngược */}
+                    {!nextLive && (
+                      <ExamCountdown
+                        targetMs={getExamTimestampMs(
+                          nextExam.examDate,
+                          nextExam.startTime
                         )}
-                      >
-                        {nextExam.examType === "CK" ? "Cuối kỳ" : "Giữa kỳ"}
-                      </span>
-                    </div>
+                      />
+                    )}
 
-                    <span className="font-mono text-xs font-bold text-primary">
-                      {nextExam.subjectCode} • {nextExam.numOfCredits} TC
-                    </span>
-                  </div>
-
-                  <h2 className="mt-3 font-heading text-xl font-extrabold leading-snug tracking-tight text-foreground">
-                    {nextExam.subjectName}
+                    {/* 4. Ba hàng thông tin: ngày, giờ, phòng */}
+                    <dl className="divide-y rounded-xl border">
+                      <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                        <dt className="text-[13px] text-muted-foreground">
+                          Ngày thi
+                        </dt>
+                        <dd className="text-right text-sm font-medium text-foreground">
+                          {DAY_FULL_LABELS[nextExam.dayOfWeek]},{" "}
+                          <span className="font-mono">
+                            {formatDateVi(nextExam.examDate).full}
+                          </span>
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                        <dt className="text-[13px] text-muted-foreground">
+                          Giờ làm bài
+                        </dt>
+                        <dd className="text-right text-sm font-medium text-foreground">
+                          <span className="font-mono">
+                            {padTime(nextExam.startTime)} –{" "}
+                            {padTime(nextExam.endTime)}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {" "}
+                            · {nextExam.durationMinutes} phút
+                          </span>
+                        </dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                        <dt className="text-[13px] text-muted-foreground">
+                          Phòng thi
+                        </dt>
+                        <dd className="text-right text-sm font-medium text-foreground">
+                          <span className="font-mono">
+                            {nextExam.roomCode || "Chưa xếp phòng"}
+                          </span>
+                          <span className="block text-xs font-normal text-muted-foreground">
+                            {formatCampus(nextExam.campusCode)}
+                          </span>
+                        </dd>
+                      </div>
+                    </dl>
+                  </button>
+                </section>
+              ) : (
+                /* Đã thi hết */
+                <section className="rounded-2xl border bg-card p-6 text-center">
+                  <span className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-success/15 text-success-fg">
+                    <PartyPopper className="h-5 w-5" />
+                  </span>
+                  <h2 className="mt-3 font-display text-base font-semibold text-foreground">
+                    Đã hoàn thành kỳ thi
                   </h2>
-
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Users className="h-3.5 w-3.5 text-sky-500" />
-                      Nhóm thi:{" "}
-                      <strong className="font-mono text-foreground">
-                        {nextExam.classGroup || "--"}
-                      </strong>
-                    </span>
-                    <span className="font-mono">Tuần {nextExam.weekNumber}</span>
-                  </div>
-                </div>
-
-                {/* 3. Distributed Separate Mini Bento Tiles (Date/Time & Room/Seat) */}
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Date Tile */}
-                  <div
-                    onClick={() => setActiveExam(nextExam)}
-                    className="cursor-pointer rounded-2xl border bg-card p-4 transition-colors hover:border-primary/40"
-                  >
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                      <Calendar className="h-3.5 w-3.5 text-primary" />
-                      <span>Ngày thi</span>
-                    </div>
-                    <p className="mt-1.5 font-heading text-sm font-bold text-foreground">
-                      {DAY_FULL_LABELS[nextExam.dayOfWeek]}
-                    </p>
-                    <p className="font-mono text-xs font-semibold text-primary">
-                      {formatDateVi(nextExam.examDate).full}
-                    </p>
-                  </div>
-
-                  {/* Time & Duration Tile */}
-                  <div
-                    onClick={() => setActiveExam(nextExam)}
-                    className="cursor-pointer rounded-2xl border bg-card p-4 transition-colors hover:border-primary/40"
-                  >
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                      <Clock className="h-3.5 w-3.5 text-amber-500" />
-                      <span>Giờ làm bài</span>
-                    </div>
-                    <p className="mt-1.5 font-mono text-sm font-bold text-foreground">
-                      {nextExam.startTime} – {nextExam.endTime}
-                    </p>
-                    <p className="font-mono text-xs text-muted-foreground">
-                      Thời lượng {nextExam.durationMinutes} phút
-                    </p>
-                  </div>
-
-                  {/* Room & Campus Tile */}
-                  <div
-                    onClick={() => setActiveExam(nextExam)}
-                    className="cursor-pointer rounded-2xl border bg-card p-4 transition-colors hover:border-primary/40"
-                  >
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                      <MapPin className="h-3.5 w-3.5 text-emerald-500" />
-                      <span>Phòng thi</span>
-                    </div>
-                    <p className="mt-1.5 font-mono text-sm font-bold text-foreground">
-                      {nextExam.roomCode || "Chưa xếp phòng"}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {formatCampusShort(nextExam.campusCode)}
-                    </p>
-                  </div>
-
-                  {/* Seat Order & Grade Deadline Tile */}
-                  <div
-                    onClick={() => setActiveExam(nextExam)}
-                    className="cursor-pointer rounded-2xl border bg-card p-4 transition-colors hover:border-primary/40"
-                  >
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                      <Hash className="h-3.5 w-3.5 text-teal-500" />
-                      <span>Số thứ tự</span>
-                    </div>
-                    <p className="mt-1.5 font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                      {nextExam.seatOrder !== null
-                        ? `STT ${nextExam.seatOrder}`
-                        : "--"}
-                    </p>
-                    <p className="truncate font-mono text-xs text-muted-foreground">
-                      {nextExam.gradeDeadline
-                        ? `Điểm: ${nextExam.gradeDeadline}`
-                        : `Tiết ${nextExam.startLesson}–${nextExam.endLesson}`}
-                    </p>
-                  </div>
-                </div>
-              </>
-            ) : (
-              /* Completed Semester Celebration Card on the Left */
-              <div className="rounded-2xl border bg-card p-6 text-center">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                  <PartyPopper className="h-6 w-6" />
-                </div>
-
-                <h2 className="mt-4 font-heading text-lg font-extrabold text-foreground">
-                  Không còn môn thi tiếp theo
-                </h2>
-                <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                  Chúc mừng bạn đã hoàn thành toàn bộ kỳ thi của{" "}
-                  <strong className="text-foreground">{semesterName}</strong>!
-                </p>
-
-                <div className="mt-5 grid grid-cols-2 gap-2.5 text-left">
-                  <div className="rounded-xl border bg-muted/15 p-3">
-                    <p className="text-[11px] text-muted-foreground">
-                      Đã hoàn thành
-                    </p>
-                    <p className="mt-0.5 font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                      {rightListExams.length} / {rightListExams.length} ca thi
-                    </p>
-                  </div>
-                  <div className="rounded-xl border bg-muted/15 p-3">
-                    <p className="text-[11px] text-muted-foreground">
-                      Tổng tín chỉ thi
-                    </p>
-                    <p className="mt-0.5 font-mono text-sm font-bold text-foreground">
-                      {Array.from(
-                        new Map(
-                          rightListExams.map((x) => [
-                            x.subjectCode,
-                            x.numOfCredits,
-                          ])
-                        ).values()
-                      ).reduce((a, b) => a + b, 0)}{" "}
-                      TC
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* ==================== RIGHT COLUMN (7/12): Wider Scrollable Exam List ==================== */}
-          <div className="flex max-h-[calc(100vh-12rem)] flex-col overflow-hidden rounded-2xl border bg-card lg:col-span-7">
-            <div className="flex items-center justify-between border-b bg-muted/20 px-4 py-3">
-              <span className="font-heading text-xs font-bold uppercase tracking-wider text-foreground">
-                {allFinished ? "Danh sách môn đã thi" : "Các môn thi tiếp theo & Đã thi"}
-              </span>
-              <span className="rounded-lg bg-primary/10 px-2.5 py-0.5 font-mono text-[11px] font-semibold text-primary">
-                {rightListExams.length} ca thi
-              </span>
+                  <p className="mt-1 text-[13px] text-muted-foreground">
+                    <span className="font-mono font-semibold text-foreground">
+                      {finished.length}
+                    </span>{" "}
+                    ca thi ·{" "}
+                    <span className="font-mono font-semibold text-foreground">
+                      {finishedCredits}
+                    </span>{" "}
+                    tín chỉ · {semesterName}
+                  </p>
+                </section>
+              )}
             </div>
 
-            {rightListExams.length === 0 ? (
-              <div className="flex h-44 items-center justify-center p-6 text-xs text-muted-foreground">
-                Không có ca thi nào khác trong danh sách lọc
-              </div>
-            ) : (
-              <div className="flex-1 space-y-2.5 overflow-y-auto p-3.5">
-                {rightListExams.map((item) => {
-                  const dateParts = formatDateVi(item.examDate);
-                  const endMs = getExamTimestampMs(item.examDate, item.endTime);
-                  const startMs = getExamTimestampMs(
-                    item.examDate,
-                    item.startTime
-                  );
-                  const isDone = endMs < nowMs;
-                  const cd = computeCountdownParts(startMs, nowMs);
-                  const isFinal = item.examType === "CK";
-
-                  return (
-                    <div
-                      key={item.examId}
-                      onClick={() => setActiveExam(item)}
-                      className={cn(
-                        "flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-3.5 transition-colors hover:border-primary/50",
-                        isDone
-                          ? "bg-muted/10 opacity-80 hover:opacity-100"
-                          : "bg-background hover:bg-muted/20"
-                      )}
-                    >
-                      <div className="flex items-center gap-4 min-w-0">
-                        {/* Balanced Proportional Date Box */}
-                        <div
-                          className={cn(
-                            "flex h-14 w-[4.5rem] shrink-0 flex-col items-center justify-center rounded-xl border px-2.5 py-1.5 text-center",
-                            isDone
-                              ? "bg-muted/40"
-                              : "border-primary/30 bg-primary/10"
-                          )}
-                        >
-                          <span className="text-[11px] font-bold leading-none text-primary">
-                            {DAY_LABELS[item.dayOfWeek]}
-                          </span>
-                          <span className="mt-1 font-mono text-sm font-extrabold leading-none text-foreground">
-                            {dateParts.short}
-                          </span>
-                        </div>
-
-                        {/* Subject & Time/Room */}
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span
-                              className={cn(
-                                "rounded px-1.5 py-0.2 font-mono text-[10px] font-bold",
-                                isFinal
-                                  ? "bg-rose-500/15 text-rose-600 dark:text-rose-400"
-                                  : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                              )}
-                            >
-                              {item.examType}
-                            </span>
-                            <span className="font-mono text-xs font-bold text-primary">
-                              {item.subjectCode}
-                            </span>
-                            <p className="truncate font-heading text-sm font-bold text-foreground">
-                              {item.subjectName}
-                            </p>
-                          </div>
-
-                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground">
-                            <span className="font-semibold text-foreground/90">
-                              {item.startTime}–{item.endTime} (
-                              {item.durationMinutes}p)
-                            </span>
-                            <span>•</span>
-                            <span className="font-semibold text-foreground/90">
-                              {item.roomCode || "--"}
-                            </span>
-                            {item.seatOrder !== null && (
-                              <>
-                                <span>•</span>
-                                <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                                  STT {item.seatOrder}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Status / Countdown Pill */}
-                      <div className="shrink-0">
-                        {isDone ? (
-                          <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-500/10 px-2.5 py-1 font-mono text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Đã thi
-                          </span>
-                        ) : (
-                          <span className="rounded-lg bg-primary/10 px-2.5 py-1 font-mono text-[11px] font-bold text-primary">
-                            {cd.days > 0
-                              ? `${cd.days} ngày`
-                              : `${cd.hours}g ${cd.minutes}p`}
-                          </span>
-                        )}
-                      </div>
+            {/* ===== Cột phải: danh sách theo nhóm ===== */}
+            <div className="space-y-4 lg:col-span-7">
+              {upcoming.length > 0 && (
+                <section className="overflow-hidden rounded-2xl border bg-card">
+                  <GroupHeader
+                    title="Sắp thi"
+                    count={upcoming.length}
+                    open={showUpcoming}
+                    onToggle={() => setShowUpcoming((o) => !o)}
+                  />
+                  <Collapse open={showUpcoming}>
+                    <div className="mt-stagger divide-y">
+                      {upcoming.map((exam, idx) => (
+                        <ExamRow
+                          key={exam.examId}
+                          exam={exam}
+                          nowMs={nowMs}
+                          isNext={idx === 0}
+                          done={false}
+                          onOpen={() => setActiveExam(exam)}
+                        />
+                      ))}
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+                  </Collapse>
+                </section>
+              )}
 
-      {/* Modals */}
+              {finished.length > 0 && (
+                <section className="overflow-hidden rounded-2xl border bg-card">
+                  <GroupHeader
+                    title="Đã thi"
+                    count={finished.length}
+                    open={showDone}
+                    onToggle={() => setShowDone((o) => !o)}
+                  />
+                  <Collapse open={showDone}>
+                    <div className="divide-y">
+                      {finished.map((exam) => (
+                        <ExamRow
+                          key={exam.examId}
+                          exam={exam}
+                          nowMs={nowMs}
+                          isNext={false}
+                          done
+                          onOpen={() => setActiveExam(exam)}
+                        />
+                      ))}
+                    </div>
+                  </Collapse>
+                </section>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       <ExamDetailModal
         open={Boolean(activeExam)}
         onClose={() => setActiveExam(null)}
         item={activeExam}
         allSemesterExams={allItems}
-        onPrepUpdated={handlePrepUpdated}
       />
-
       <ExamGoogleCalendarModal
-        open={gcalModalOpen}
-        onClose={() => setGcalModalOpen(false)}
-        semesterYearCode={selectedSemester}
+        open={gcalOpen}
+        onClose={() => setGcalOpen(false)}
+        semesterYearCode={selectedSemesterCode}
         semesterYearName={semesterName}
         items={allItems}
         onDownloadIcs={handleDownloadIcs}

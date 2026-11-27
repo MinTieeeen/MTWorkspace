@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getValidAccessToken } from "@/lib/google-auth";
 import { getStoredExams, NormalizedExamItem } from "@/lib/mybk-exams";
+import { formatCampus } from "@/lib/format";
 
 const GOOGLE_CALENDAR_EVENTS_API =
   "https://www.googleapis.com/calendar/v3/calendars/primary/events";
@@ -10,13 +11,6 @@ interface SyncExamsRequestBody {
   semesterYearCode?: string;
   scope?: "UPCOMING" | "ALL" | "SINGLE";
   examId?: number;
-}
-
-function formatCampusName(campusCode: string | null): string {
-  if (!campusCode) return "ĐH Bách Khoa TP.HCM";
-  if (campusCode.includes("CS1")) return "Cơ sở 1 - Lý Thường Kiệt";
-  if (campusCode.includes("CS2")) return "Cơ sở 2 - Dĩ An";
-  return campusCode;
 }
 
 function buildExamCalendarEvent(item: NormalizedExamItem) {
@@ -32,13 +26,12 @@ function buildExamCalendarEvent(item: NormalizedExamItem) {
     .replace(/[^a-v0-9]/g, "0");
 
   const roomPart = item.roomCode || "Chưa xếp phòng";
-  const location = `${roomPart} (${formatCampusName(item.campusCode)})`;
+  const location = `${roomPart} (${formatCampus(item.campusCode)})`;
 
   const descriptionLines = [
     `Kỳ thi: ${examTypeLabel} — ${item.semesterYearName}`,
     `Môn thi: ${item.subjectCode} - ${item.subjectName} (${item.numOfCredits} TC)`,
     `Nhóm thi: ${item.classGroup || "--"}`,
-    item.seatOrder ? `Số thứ tự danh sách phòng thi (STT): ${item.seatOrder}` : null,
     `Thời gian làm bài: ${item.durationMinutes} phút (${item.startTime} - ${item.endTime}, Tiết ${item.startLesson}-${item.endLesson})`,
     `Phòng thi: ${roomPart} • Tòa ${item.buildingCode || "--"}`,
     item.gradeDeadline ? `Hạn công bố/nhập điểm dự kiến: ${item.gradeDeadline}` : null,

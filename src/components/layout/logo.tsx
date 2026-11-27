@@ -1,57 +1,52 @@
+import { BRAND, LOGO_PATH_BAR, LOGO_PATH_MAIN } from "@/lib/brand";
+
+/**
+ * Logo "một nét liền": chữ M nối thẳng sang T, kết thúc bằng chấm mốc.
+ * Hiệu ứng hover nằm trong globals.css (.brand-logo*), tĩnh khi không hover.
+ */
+export function BrandMark({ className = "" }: { className?: string }) {
+  return (
+    <span
+      className={`brand-tile relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary shadow-sm ${className}`}
+      aria-hidden="true"
+    >
+      <svg viewBox="0 0 40 40" fill="none" className="h-full w-full">
+        <path
+          className="brand-stroke brand-stroke-main"
+          d={LOGO_PATH_MAIN}
+          pathLength={1}
+          stroke="white"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          className="brand-stroke brand-stroke-bar"
+          d={LOGO_PATH_BAR}
+          pathLength={1}
+          stroke="white"
+          strokeWidth="3"
+          strokeLinecap="round"
+        />
+      </svg>
+      <span className="brand-dot" />
+    </span>
+  );
+}
+
 export function BrandLogo() {
   return (
-    <div className="group flex items-center gap-3 cursor-pointer">
-      {/* Solid Single-Color Logo Box with Internal SVG Path Animation on Hover */}
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm dark:bg-primary/85">
-        <svg
-          viewBox="0 0 36 36"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-7 w-7"
-        >
-          {/* Orbit Ring - rotates internally on hover */}
-          <ellipse
-            cx="18"
-            cy="18"
-            rx="14"
-            ry="6.5"
-            transform="rotate(-28 18 18)"
-            stroke="rgba(255,255,255,0.35)"
-            strokeWidth="1.6"
-            strokeDasharray="3 2"
-            className="origin-center transition-transform duration-500 group-hover:rotate-12"
-          />
-          {/* Solid Geometric M + T Monogram */}
-          <path
-            d="M7.5 24.5V12.5L13 18.5L18.5 12.5V24.5"
-            stroke="white"
-            strokeWidth="2.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M21 12.5H29M25 12.5V24.5"
-            stroke="white"
-            strokeWidth="2.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          {/* Spark Star - spins internally on hover */}
-          <path
-            d="M28.5 6.5L29.4 8.6L31.5 9.5L29.4 10.4L28.5 12.5L27.6 10.4L25.5 9.5L27.6 8.6L28.5 6.5Z"
-            fill="#FDE047"
-            className="origin-[28.5px_9.5px] transition-transform duration-500 group-hover:rotate-90"
-          />
-        </svg>
-      </div>
-
-      {/* Brand Wordmark (Solid Color, Larger Font) */}
-      <div className="flex items-center gap-1.5">
-        <span className="font-display text-lg font-extrabold tracking-tight text-foreground">
-          MTWorkspace
+    <div className="brand-logo group flex cursor-pointer items-center gap-3">
+      <BrandMark />
+      <span className="relative flex items-baseline font-display text-lg leading-none">
+        <span className="font-bold tracking-tight text-foreground">
+          {BRAND.short}
         </span>
-        <span className="h-2 w-2 rounded-full bg-primary" />
-      </div>
+        <span className="brand-suffix font-medium text-muted-foreground">
+          {BRAND.suffix}
+        </span>
+        <span className="brand-underline" />
+      </span>
     </div>
   );
 }

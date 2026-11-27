@@ -167,6 +167,18 @@ Màn hình trang chủ mỗi khi bạn mở hệ thống vào buổi sáng:
 
 ---
 
+### Phân hệ 7: Đồ án chuyên ngành (`Thesis Workspace`)
+
+Quản lý đồ án chuyên ngành trong một chỗ: **phản chiếu (chỉ đọc)** thông tin từ hệ thống quản lý đồ án của trường (`project-cse.hcmut.edu.vn`) và **tự quản lý** những phần hệ thống trường không có.
+
+- **Từ hệ thống trường (chỉ GET, lưu cache):** hồ sơ đồ án (đề tài, GVHD, nhóm, trạng thái), **mốc thời gian của đợt** kèm đếm ngược và nhắc hạn, **lịch bảo vệ (hội đồng)**, thông báo của hệ thống đồ án, báo cáo đã nộp, theo dõi thay đổi.
+- **Do workspace quản lý:** **danh sách cuộc họp** (chương trình, biên bản, việc cần làm, họp lặp lại, đồng bộ Google Calendar), **ghi chú và nhật ký tuần**, công việc đồ án (bảng 3 cột), tài liệu và liên kết, mốc cá nhân, checklist nộp bài.
+- Dùng được cả khi chưa kết nối hệ thống trường (nhập tay).
+
+Chi tiết, kết quả khảo sát kết nối, mô hình dữ liệu và lộ trình: xem **`THESIS_PLAN.md`**.
+
+---
+
 ## 3. Kiến Trúc Kỹ Thuật & Công Nghệ Đã Chốt (Confirmed Tech Stack)
 
 Hệ thống được thiết kế theo mô hình **Web App chạy Local-first**, sẵn sàng mở rộng tích hợp đa dịch vụ (myBK, Gmail, Telegram):

@@ -3,45 +3,52 @@
 import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 
+const THEME_EVENT = "mt-theme-changed";
+
+/** Đổi sáng/tối từ bất kỳ đâu (nút ở header, bảng lệnh Ctrl K) */
+export function toggleTheme() {
+  const nextDark = !document.documentElement.classList.contains("dark");
+  document.documentElement.classList.toggle("dark", nextDark);
+  try {
+    localStorage.setItem("mt-theme", nextDark ? "dark" : "light");
+  } catch {
+    // trình duyệt chặn localStorage: vẫn đổi được trong phiên hiện tại
+  }
+  window.dispatchEvent(new Event(THEME_EVENT));
+}
+
 export function ThemeToggle() {
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem("mt-theme");
-    const prefersDark = window.matchMedia(
-      "(prefers-color-scheme: dark)"
-    ).matches;
-    const shouldBeDark = saved ? saved === "dark" : prefersDark;
-    setIsDark(shouldBeDark);
-    document.documentElement.classList.toggle("dark", shouldBeDark);
+    // Class dark đã được script trong <head> đặt sẵn trước khi paint
+    const sync = () =>
+      setIsDark(document.documentElement.classList.contains("dark"));
+    sync();
+    window.addEventListener(THEME_EVENT, sync);
+    return () => window.removeEventListener(THEME_EVENT, sync);
   }, []);
-
-  const toggleTheme = () => {
-    const nextDark = !isDark;
-    setIsDark(nextDark);
-    document.documentElement.classList.toggle("dark", nextDark);
-    localStorage.setItem("mt-theme", nextDark ? "dark" : "light");
-  };
 
   return (
     <button
       type="button"
       onClick={toggleTheme}
       title={isDark ? "Chuyển sang giao diện Sáng" : "Chuyển sang giao diện Tối"}
-      className="group relative inline-flex h-10 w-10 items-center justify-center rounded-xl border bg-card text-muted-foreground transition-colors duration-200 hover:border-primary/40 hover:bg-accent hover:text-accent-foreground"
+      aria-label="Đổi giao diện sáng/tối"
+      className="group relative inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground"
     >
       <Sun
-        className={`h-4 w-4 text-amber-500 transition-transform duration-500 ${
+        className={`h-[18px] w-[18px] text-warning-fg transition-all duration-500 ${
           isDark
-            ? "scale-0 opacity-0"
+            ? "rotate-90 scale-0 opacity-0"
             : "scale-100 opacity-100 group-hover:rotate-90"
         }`}
       />
       <Moon
-        className={`absolute h-4 w-4 text-sky-400 transition-transform duration-500 ${
+        className={`absolute h-[18px] w-[18px] text-info-fg transition-all duration-500 ${
           isDark
             ? "scale-100 opacity-100 group-hover:-rotate-12"
-            : "scale-0 opacity-0"
+            : "-rotate-90 scale-0 opacity-0"
         }`}
       />
     </button>

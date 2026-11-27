@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorResponse } from "@/lib/api-error";
 import {
   ExamPrepStatus,
   getStoredExams,
@@ -25,18 +26,13 @@ export async function GET(request: Request) {
     const data = await getStoredExams(semesterYear);
     return NextResponse.json(data);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Không thể tải dữ liệu Lịch thi";
     const fallback = await getStoredExams(semesterYear).catch(() => null);
-    if (fallback && fallback.items.length > 0) {
-      return NextResponse.json({
-        ...fallback,
-        warning: message,
-      });
-    }
-    return NextResponse.json({ error: message }, { status: 500 });
+    return errorResponse(
+      error,
+      fallback && fallback.items.length > 0
+        ? fallback
+        : null
+    );
   }
 }
 

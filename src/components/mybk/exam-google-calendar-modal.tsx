@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { Modal, useRetained } from "@/components/ui/modal";
 import {
   X,
   CalendarPlus,
@@ -38,16 +38,12 @@ export function ExamGoogleCalendarModal({
   items,
   onDownloadIcs,
 }: ExamGoogleCalendarModalProps) {
-  const [mounted, setMounted] = useState(false);
   const [accounts, setAccounts] = useState<GoogleAccountOption[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
   const [syncScope, setSyncScope] = useState<"UPCOMING" | "ALL">("UPCOMING");
   const [syncing, setSyncing] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -70,8 +66,6 @@ export function ExamGoogleCalendarModal({
         setLoadingAccounts(false);
       });
   }, [open]);
-
-  if (!open || !mounted) return null;
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const upcomingCount = items.filter((i) => i.examDate >= todayIso).length;
@@ -112,15 +106,8 @@ export function ExamGoogleCalendarModal({
     }
   };
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
-      onClick={onClose}
-    >
-      <div
-        className="relative flex w-full max-w-md flex-col overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+  return (
+    <Modal open={open} onClose={onClose} panelClassName="max-w-md">
         {/* Clean Header */}
         <div className="flex items-center justify-between border-b bg-muted/20 px-5 py-3.5">
           <div className="flex items-center gap-2.5">
@@ -131,7 +118,7 @@ export function ExamGoogleCalendarModal({
               <h2 className="font-heading text-sm font-bold text-foreground">
                 Thêm vào Google Calendar
               </h2>
-              <span className="rounded-md bg-muted px-2 py-0.5 font-mono text-[11px] font-semibold text-muted-foreground">
+              <span className="rounded-md bg-muted px-2 py-0.5 font-mono text-xs font-semibold text-muted-foreground">
                 HK {semesterYearCode}
               </span>
             </div>
@@ -165,7 +152,7 @@ export function ExamGoogleCalendarModal({
                 )}
               >
                 <span>Sắp thi</span>
-                <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
                   {upcomingCount}
                 </span>
               </button>
@@ -181,7 +168,7 @@ export function ExamGoogleCalendarModal({
                 )}
               >
                 <span>Cả học kỳ</span>
-                <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
                   {totalCount}
                 </span>
               </button>
@@ -238,7 +225,7 @@ export function ExamGoogleCalendarModal({
                       <div className="flex items-center gap-2 shrink-0">
                         <span
                           className={cn(
-                            "rounded-md px-2 py-0.5 text-[10px] font-semibold",
+                            "rounded-md px-2 py-0.5 text-xs font-semibold",
                             acc.accountType === "HCMUT"
                               ? "bg-primary/15 text-primary"
                               : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
@@ -291,8 +278,6 @@ export function ExamGoogleCalendarModal({
             </button>
           </div>
         </div>
-      </div>
-    </div>,
-    document.body
+      </Modal>
   );
 }

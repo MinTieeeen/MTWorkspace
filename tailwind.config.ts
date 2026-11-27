@@ -11,10 +11,10 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["var(--font-jakarta)", "sans-serif"],
-        display: ["var(--font-outfit)", "var(--font-jakarta)", "sans-serif"],
-        heading: ["var(--font-outfit)", "var(--font-jakarta)", "sans-serif"],
-        mono: ["var(--font-jetbrains)", "monospace"],
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        display: ["var(--font-display)", "var(--font-sans)", "sans-serif"],
+        heading: ["var(--font-display)", "var(--font-sans)", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "monospace"],
       },
       colors: {
         background: "hsl(var(--background))",
@@ -46,6 +46,46 @@ export default {
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
+        },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          fg: "hsl(var(--success-fg))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          fg: "hsl(var(--warning-fg))",
+        },
+        danger: {
+          DEFAULT: "hsl(var(--danger))",
+          fg: "hsl(var(--danger-fg))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          fg: "hsl(var(--info-fg))",
+        },
+        "subject-1": {
+          DEFAULT: "hsl(var(--subject-1))",
+          fg: "hsl(var(--subject-1-fg))",
+        },
+        "subject-2": {
+          DEFAULT: "hsl(var(--subject-2))",
+          fg: "hsl(var(--subject-2-fg))",
+        },
+        "subject-3": {
+          DEFAULT: "hsl(var(--subject-3))",
+          fg: "hsl(var(--subject-3-fg))",
+        },
+        "subject-4": {
+          DEFAULT: "hsl(var(--subject-4))",
+          fg: "hsl(var(--subject-4-fg))",
+        },
+        "subject-5": {
+          DEFAULT: "hsl(var(--subject-5))",
+          fg: "hsl(var(--subject-5-fg))",
+        },
+        "subject-6": {
+          DEFAULT: "hsl(var(--subject-6))",
+          fg: "hsl(var(--subject-6-fg))",
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

@@ -24,6 +24,30 @@
     --input: 220 13% 88%;
     --ring: 201 88% 42%;
     --radius: 0.85rem;
+
+    /* Màu ngữ nghĩa: DEFAULT dùng cho nền/viền/thanh nhấn (kèm alpha), -fg dùng cho chữ */
+    --success: 158 64% 38%;
+    --success-fg: 160 84% 28%;
+    --warning: 38 92% 50%;
+    --warning-fg: 32 90% 36%;
+    --danger: 350 80% 54%;
+    --danger-fg: 350 72% 42%;
+    --info: 201 88% 42%;
+    --info-fg: 201 88% 32%;
+
+    /* 6 màu phân biệt môn học (không tím, không gradient) */
+    --subject-1: 201 88% 46%;
+    --subject-1-fg: 201 88% 30%;
+    --subject-2: 158 64% 38%;
+    --subject-2-fg: 160 84% 26%;
+    --subject-3: 38 92% 50%;
+    --subject-3-fg: 32 90% 32%;
+    --subject-4: 350 80% 56%;
+    --subject-4-fg: 350 72% 40%;
+    --subject-5: 22 90% 52%;
+    --subject-5-fg: 20 85% 36%;
+    --subject-6: 178 70% 36%;
+    --subject-6-fg: 178 80% 24%;
   }
 
   /* Deep Muted Dark Mode — Low-luminance primary & surfaces so buttons/pills NEVER glare */
@@ -47,6 +71,28 @@
     --border: 0 0% 17%;             /* #2b2b2b Soft subtle dividers */
     --input: 0 0% 17%;
     --ring: 204 56% 36%;
+
+    --success: 158 42% 40%;
+    --success-fg: 158 42% 62%;
+    --warning: 38 54% 46%;
+    --warning-fg: 38 56% 66%;
+    --danger: 350 48% 48%;
+    --danger-fg: 350 54% 68%;
+    --info: 202 52% 44%;
+    --info-fg: 202 55% 66%;
+
+    --subject-1: 202 52% 46%;
+    --subject-1-fg: 202 55% 68%;
+    --subject-2: 158 42% 40%;
+    --subject-2-fg: 158 42% 62%;
+    --subject-3: 38 54% 46%;
+    --subject-3-fg: 38 56% 66%;
+    --subject-4: 350 48% 50%;
+    --subject-4-fg: 350 54% 70%;
+    --subject-5: 24 56% 48%;
+    --subject-5-fg: 26 58% 68%;
+    --subject-6: 178 42% 40%;
+    --subject-6-fg: 178 42% 62%;
   }
 }
 
@@ -269,4 +315,230 @@
 
 .group:hover .icon-anim-slide {
   animation: iconSlideUp 0.45s ease-in-out;
+}
+
+/* ============================================================
+ * Logo MTWorkspace: nét M-T tự vẽ lại + chấm mốc chạy dọc đường
+ * Tĩnh khi không hover (nét hiển thị đủ, chấm nằm ở cuối nét).
+ * ============================================================ */
+.brand-stroke {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+
+.brand-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: #fbbf24;
+  box-shadow: 0 0 0 2px hsl(var(--primary));
+  offset-path: path("M6 27V13L13 22L20 13H26.5V27");
+  offset-anchor: 50% 50%;
+  offset-rotate: 0deg;
+  offset-distance: 100%;
+}
+
+.brand-tile {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.35s ease;
+}
+
+.brand-suffix {
+  letter-spacing: 0;
+  transition: letter-spacing 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.25s ease;
+}
+
+.brand-underline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -5px;
+  height: 2px;
+  border-radius: 2px;
+  background: hsl(var(--primary));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes brandDraw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes brandDotRun {
+  0% {
+    offset-distance: 0%;
+    transform: scale(0.6);
+  }
+  85% {
+    offset-distance: 100%;
+    transform: scale(1);
+  }
+  93% {
+    offset-distance: 100%;
+    transform: scale(1.5);
+  }
+  100% {
+    offset-distance: 100%;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .brand-logo:hover .brand-tile {
+    transform: rotate(-5deg) scale(1.06);
+    box-shadow: 0 6px 18px -4px hsl(var(--primary) / 0.55);
+  }
+  .brand-logo:hover .brand-stroke-main {
+    animation: brandDraw 0.75s cubic-bezier(0.65, 0, 0.35, 1) both;
+  }
+  .brand-logo:hover .brand-stroke-bar {
+    animation: brandDraw 0.25s ease-out 0.55s both;
+  }
+  .brand-logo:hover .brand-dot {
+    animation: brandDotRun 0.9s cubic-bezier(0.65, 0, 0.35, 1) both;
+  }
+  .brand-logo:hover .brand-suffix {
+    letter-spacing: 0.08em;
+    color: hsl(var(--foreground));
+  }
+  .brand-logo:hover .brand-underline {
+    transform: scaleX(1);
+  }
+}
+
+/* ============================================================
+ * Animation dùng chung (modal, toast, trang)
+ * ============================================================ */
+@keyframes mtFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mtFadeOut { from { opacity: 1; } to { opacity: 0; } }
+@keyframes mtPanelIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes mtPanelOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(6px) scale(0.97); }
+}
+@keyframes mtToastIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes mtToastOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(8px); }
+}
+@keyframes mtProgress { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+.mt-modal-overlay[data-state="open"] { animation: mtFadeIn 0.15s ease-out both; }
+.mt-modal-overlay[data-state="closing"] { animation: mtFadeOut 0.18s ease-in both; }
+.mt-modal-panel[data-state="open"] { animation: mtPanelIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.mt-modal-panel[data-state="closing"] { animation: mtPanelOut 0.18s ease-in both; }
+.mt-toast[data-state="open"] { animation: mtToastIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.mt-toast[data-state="closing"] { animation: mtToastOut 0.2s ease-in both; }
+.mt-toast-progress { transform-origin: left; animation: mtProgress linear both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mt-modal-panel[data-state="open"],
+  .mt-modal-panel[data-state="closing"],
+  .mt-toast[data-state="open"],
+  .mt-toast[data-state="closing"] {
+    animation-name: mtFadeIn;
+  }
+  .mt-modal-panel[data-state="closing"],
+  .mt-toast[data-state="closing"] {
+    animation-name: mtFadeOut;
+  }
+  .mt-toast-progress { animation: none; }
+}
+
+/* ============================================================
+ * Giai đoạn 2: chuyển trang, danh sách lần lượt, thu gọn/mở, đổi tuần
+ * ============================================================ */
+@keyframes mtPageIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes mtItemIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes mtSlideFromRight {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes mtSlideFromLeft {
+  from { opacity: 0; transform: translateX(-24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.mt-page { animation: mtPageIn 0.2s ease-out both; }
+
+/* Con trực tiếp xuất hiện lần lượt: đặt style={{ "--i": index }} trên từng con,
+   hoặc để mặc định theo thứ tự (tối đa 8 phần tử đầu được so le). */
+.mt-stagger > * {
+  animation: mtItemIn 0.18s ease-out both;
+  animation-delay: calc(min(var(--i, 0), 8) * 30ms);
+}
+.mt-stagger > *:nth-child(1) { --i: 0; }
+.mt-stagger > *:nth-child(2) { --i: 1; }
+.mt-stagger > *:nth-child(3) { --i: 2; }
+.mt-stagger > *:nth-child(4) { --i: 3; }
+.mt-stagger > *:nth-child(5) { --i: 4; }
+.mt-stagger > *:nth-child(6) { --i: 5; }
+.mt-stagger > *:nth-child(7) { --i: 6; }
+.mt-stagger > *:nth-child(n + 8) { --i: 7; }
+
+/* Thu gọn/mở bằng grid-template-rows 0fr -> 1fr (không cần biết chiều cao) */
+.mt-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.22s ease;
+}
+.mt-collapse[data-open="true"] { grid-template-rows: 1fr; }
+.mt-collapse > .mt-collapse-inner { overflow: hidden; min-height: 0; }
+
+.mt-slide-next { animation: mtSlideFromRight 0.2s ease-out both; }
+.mt-slide-prev { animation: mtSlideFromLeft 0.2s ease-out both; }
+
+/* Số liệu không bị giật khi đổi (đếm ngược, điểm, giờ) */
+.font-mono { font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mt-page,
+  .mt-stagger > *,
+  .mt-slide-next,
+  .mt-slide-prev { animation-name: mtFadeIn; animation-delay: 0ms; }
+  .mt-collapse { transition: none; }
+  .icon-anim-wiggle, .icon-anim-tick, .icon-anim-slide { animation: none !important; }
+}
+
+/* Chuyển trang theo hướng menu + tiêu đề header đổi mượt */
+@keyframes mtPageDown {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes mtPageUp {
+  from { opacity: 0; transform: translateY(-18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes mtTitleIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.mt-page-down { animation: mtPageDown 0.3s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.mt-page-up { animation: mtPageUp 0.3s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.mt-title-in { animation: mtTitleIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mt-page-down, .mt-page-up, .mt-title-in { animation-name: mtFadeIn; }
 }
